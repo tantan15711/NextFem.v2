@@ -1,8 +1,7 @@
 const { Pool } = require("pg");
+const { getDatabaseOptions } = require("./databaseOptions");
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
-});
+const pool = new Pool(getDatabaseOptions());
 
 pool.on("error", (error) => {
   console.error("Error inesperado en PostgreSQL:", error);

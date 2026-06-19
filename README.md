@@ -59,6 +59,9 @@ http://localhost:5173
 El registro, inicio de sesion, publicaciones, chat y multimedia solo funcionan si
 el backend esta encendido al mismo tiempo que el frontend.
 
+En produccion pasa lo mismo, pero con el backend desplegado en internet. Para
+subirlo rapido revisa [DEPLOY_NOW.md](DEPLOY_NOW.md).
+
 Si PowerShell bloquea `npm`, usa `npm.cmd` en los mismos comandos, por ejemplo
 `npm.cmd run dev`.
 

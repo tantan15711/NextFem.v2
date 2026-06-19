@@ -42,12 +42,12 @@ export const mobileKeyboard = {
   mounted(root) {
     const handler = (event) => focusForMobileKeyboard(event, root);
     root.__nextFemMobileKeyboard = handler;
-    root.addEventListener("touchend", handler, { passive: true });
+    root.addEventListener("click", handler, { passive: true });
   },
   unmounted(root) {
     if (!root.__nextFemMobileKeyboard) return;
 
-    root.removeEventListener("touchend", root.__nextFemMobileKeyboard);
+    root.removeEventListener("click", root.__nextFemMobileKeyboard);
     delete root.__nextFemMobileKeyboard;
   }
 };

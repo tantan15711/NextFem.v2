@@ -275,6 +275,12 @@ const navigateTo = async (view) => {
 const handleRequestError = (err) => {
   const message = err?.message || "No se pudo completar la solicitud.";
 
+  if (message.includes("VITE_API_URL") || message.includes("backend de produccion")) {
+    apiStatus.value = "offline";
+    setError(message);
+    return;
+  }
+
   if (
     message.includes("conectar") ||
     message.includes("conexion") ||

@@ -1,5 +1,7 @@
 # Despliegue de NextFem
 
+Para una guia corta de subida, usa primero [DEPLOY_NOW.md](DEPLOY_NOW.md).
+
 Esta fase deja el proyecto listo para desplegar frontend y backend por separado.
 Una ruta sencilla es: backend en Render/Railway/Fly.io, base de datos en PostgreSQL
 gestionado, y frontend en Vercel/Netlify.
@@ -72,6 +74,9 @@ Root directory: frontend
 Build command: npm install && npm run build
 Publish directory: dist
 ```
+
+En Vercel, si conectas el repositorio completo, configura `frontend` como
+`Root Directory`.
 
 La carpeta final para publicar es:
 

@@ -3,11 +3,10 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
+const { getDatabaseOptions } = require("../src/config/databaseOptions");
 
 const run = async () => {
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL
-  });
+  const client = new Client(getDatabaseOptions());
 
   await client.connect();
 

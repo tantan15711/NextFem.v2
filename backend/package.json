@@ -6,6 +6,7 @@
   "scripts": {
     "db:setup": "node scripts/setup-db.js",
     "dev": "nodemon src/server.js",
+    "deploy:start": "node scripts/setup-db.js && node src/server.js",
     "start": "node src/server.js"
   },
   "dependencies": {

@@ -1,3 +1,8 @@
+const hasConfiguredApiUrl = Boolean(import.meta.env.VITE_API_URL);
+const currentHost = typeof window === "undefined" ? "localhost" : window.location.hostname;
+const isLocalHost = ["localhost", "127.0.0.1", ""].includes(currentHost);
+const missingProductionApiUrl = !hasConfiguredApiUrl && !isLocalHost;
+
 export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 export const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL || API_URL.replace(/\/api$/, "");
@@ -26,6 +31,12 @@ export const storage = {
 };
 
 const request = async (path, options = {}) => {
+  if (missingProductionApiUrl) {
+    throw new Error(
+      "Falta conectar el backend de produccion. Configura VITE_API_URL en Vercel con la URL de tu backend desplegado."
+    );
+  }
+
   const token = storage.getToken();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12000);
