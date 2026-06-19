@@ -3,7 +3,7 @@
   <rect x="108" y="94" width="684" height="452" rx="38" fill="#FFFDFD"/>
   <rect x="250" y="260" width="400" height="210" rx="22" fill="#A32656"/>
   <rect x="424" y="260" width="52" height="210" fill="#FFD48D"/>
-  <rect x="220" y="220" width="460" height="70" rx="20" fill="#6D1637"/>
+  <rect x="220" y="220" width="460" height="70" rx="20" fill="#C74485"/>
   <rect x="424" y="220" width="52" height="70" fill="#FFD48D"/>
   <path d="M448 218C402 170 326 172 334 220C344 272 420 242 448 218Z" stroke="#3E746C" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M452 218C498 170 574 172 566 220C556 272 480 242 452 218Z" stroke="#3E746C" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>

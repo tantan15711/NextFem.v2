@@ -1,9 +1,14 @@
 const app = require("./app");
+const http = require("http");
 const { pool } = require("./config/db");
+const { initSocket } = require("./realtime/socket");
 
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
 
-const server = app.listen(PORT, () => {
+initSocket(server);
+
+server.listen(PORT, () => {
   console.log(`Servidor backend escuchando en http://localhost:${PORT}`);
 });
 

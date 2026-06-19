@@ -1,0 +1,78 @@
+insert into products (user_id, category_id, title, description, price, is_free, image_url, city)
+select
+  u.id,
+  c.id,
+  seed.title,
+  seed.description,
+  seed.price,
+  seed.is_free,
+  seed.image_url,
+  seed.city
+from users u
+join (
+  values
+    ('Ropa', 'Vestido casual de lino', 'Vestido fresco para uso diario, hecho bajo pedido.', 320.00, false, '/sample-products/taller-costura.svg', 'Puebla'),
+    ('Ropa', 'Falda midi estampada', 'Falda comoda con resorte y tela ligera.', 240.00, false, '/sample-products/taller-costura.svg', 'Morelia'),
+    ('Ropa', 'Blazer de segunda mano curado', 'Prenda revisada y lista para oficina o entrevista.', 280.00, false, '/sample-products/taller-costura.svg', 'Ciudad de Mexico'),
+    ('Ropa', 'Playeras personalizadas', 'Playeras con frases, logo o diseno para eventos.', 160.00, false, '/sample-products/taller-costura.svg', 'Toluca'),
+    ('Ropa', 'Pantalon amplio hecho a medida', 'Pantalon comodo con corte amplio para trabajo o paseo.', 290.00, false, '/sample-products/taller-costura.svg', 'Merida'),
+    ('Ropa', 'Set de scrunchies', 'Coleccion de ligas de tela para cabello en colores suaves.', 55.00, false, '/sample-products/taller-costura.svg', 'Oaxaca'),
+    ('Ropa', 'Mandil para emprendedora', 'Mandil resistente para cocina, bazar o taller creativo.', 180.00, false, '/sample-products/taller-costura.svg', 'Guadalajara'),
+    ('Ropa', 'Renta de vestidos para evento', 'Vestidos disponibles por fin de semana con entrega local.', 350.00, false, '/sample-products/regalos.svg', 'Monterrey'),
+    ('Comida', 'Pastel casero por encargo', 'Pasteles personalizados para cumpleanos y reuniones.', 420.00, false, '/sample-products/pan-artesanal.svg', 'Xalapa'),
+    ('Comida', 'Charola de botanas', 'Botanas preparadas para reuniones pequenas.', 260.00, false, '/sample-products/pan-artesanal.svg', 'Tapachula'),
+    ('Comida', 'Tamales por docena', 'Tamales caseros de temporada para pedido anticipado.', 180.00, false, '/sample-products/pan-artesanal.svg', 'Queretaro'),
+    ('Comida', 'Granola artesanal', 'Granola casera con avena, semillas y fruta seca.', 95.00, false, '/sample-products/pan-artesanal.svg', 'Pachuca'),
+    ('Comida', 'Lunch saludable semanal', 'Paquetes de comida sencilla para oficina o escuela.', 480.00, false, '/sample-products/pan-artesanal.svg', 'Ciudad de Mexico'),
+    ('Comida', 'Cafe molido de origen local', 'Bolsa de cafe tostado y molido para venta por pedido.', 140.00, false, '/sample-products/pan-artesanal.svg', 'Chiapas'),
+    ('Comida', 'Gelatinas artisticas', 'Gelatinas decoradas para regalos, fiestas o ventas.', 75.00, false, '/sample-products/regalos.svg', 'Guadalajara'),
+    ('Comida', 'Salsas caseras', 'Frascos de salsa artesanal con distintos niveles de picante.', 70.00, false, '/sample-products/pan-artesanal.svg', 'Puebla'),
+    ('Artesanias', 'Bolsa tejida artesanal', 'Bolsa ligera elaborada a mano para uso diario.', 260.00, false, '/sample-products/joyeria.svg', 'Oaxaca'),
+    ('Artesanias', 'Portavasos pintados', 'Set de portavasos decorativos para hogar o negocio.', 90.00, false, '/sample-products/regalos.svg', 'Queretaro'),
+    ('Artesanias', 'Cuadros decorativos pequenos', 'Piezas pintadas a mano para recamaras, salas o stands.', 190.00, false, '/sample-products/regalos.svg', 'Morelia'),
+    ('Artesanias', 'Llaveros personalizados', 'Llaveros con nombre o color a eleccion.', 45.00, false, '/sample-products/joyeria.svg', 'Merida'),
+    ('Artesanias', 'Velas aromaticas', 'Velas hechas a mano con aromas suaves para regalo.', 110.00, false, '/sample-products/regalos.svg', 'Puebla'),
+    ('Artesanias', 'Libretas decoradas', 'Libretas artesanales para notas, escuela o negocio.', 85.00, false, '/sample-products/regalos.svg', 'Toluca'),
+    ('Artesanias', 'Macrame para pared', 'Pieza decorativa tejida para espacios pequenos.', 230.00, false, '/sample-products/plantas.svg', 'En linea'),
+    ('Artesanias', 'Cartera bordada', 'Cartera compacta con bordado artesanal.', 150.00, false, '/sample-products/joyeria.svg', 'Pachuca'),
+    ('Belleza', 'Balsamo labial natural', 'Balsamo hecho en casa con aroma suave.', 45.00, false, '/sample-products/cosmetica-natural.svg', 'Morelia'),
+    ('Belleza', 'Mascarilla facial de arcilla', 'Mascarilla natural para rutina semanal de cuidado.', 80.00, false, '/sample-products/cosmetica-natural.svg', 'Puebla'),
+    ('Belleza', 'Set cuidado de manos', 'Crema, aceite y jabon pequeno para regalo.', 145.00, false, '/sample-products/cosmetica-natural.svg', 'Ciudad de Mexico'),
+    ('Belleza', 'Maquillaje social a domicilio', 'Servicio de maquillaje para eventos y sesiones.', 380.00, false, '/sample-products/cosmetica-natural.svg', 'Guadalajara'),
+    ('Belleza', 'Peinado sencillo para evento', 'Peinado basico a domicilio con cita previa.', 250.00, false, '/sample-products/cosmetica-natural.svg', 'Monterrey'),
+    ('Belleza', 'Aceite corporal artesanal', 'Aceite hidratante con aroma delicado.', 120.00, false, '/sample-products/cosmetica-natural.svg', 'Xalapa'),
+    ('Belleza', 'Clase basica de automaquillaje', 'Sesion para aprender rutina sencilla y practica.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Belleza', 'Kit spa en casa', 'Sales, jabon y vela pequena para descanso personal.', 190.00, false, '/sample-products/cosmetica-natural.svg', 'Queretaro'),
+    ('Servicios', 'Diseno de logo inicial', 'Propuesta sencilla de logo para emprendimientos nuevos.', 300.00, false, '/sample-products/asesoria.svg', 'En linea'),
+    ('Servicios', 'Menu digital para negocio', 'Menu en PDF o imagen para compartir por WhatsApp.', 160.00, false, '/sample-products/asesoria.svg', 'En linea'),
+    ('Servicios', 'Organizacion de closet', 'Servicio local para ordenar ropa y optimizar espacios.', 350.00, false, '/sample-products/asesoria.svg', 'Ciudad de Mexico'),
+    ('Servicios', 'Cuidado de mascotas por hora', 'Apoyo para paseo o cuidado puntual en casa.', 120.00, false, '/sample-products/asesoria.svg', 'Merida'),
+    ('Servicios', 'Decoracion para mesa de postres', 'Montaje sencillo para eventos pequenos.', 550.00, false, '/sample-products/regalos.svg', 'Toluca'),
+    ('Servicios', 'Captura de datos y documentos', 'Apoyo remoto para ordenar informacion en hojas de calculo.', 180.00, false, '/sample-products/asesoria.svg', 'En linea'),
+    ('Servicios', 'Asesoria para abrir redes sociales', 'Acompanamiento basico para crear perfiles y primeras publicaciones.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Servicios', 'Empaque de regalos', 'Servicio de envoltura y armado de detalles personalizados.', 60.00, false, '/sample-products/regalos.svg', 'Puebla'),
+    ('Educacion', 'Mini curso de ventas por WhatsApp', 'Guia gratuita para responder clientas y cerrar pedidos.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Educacion', 'Taller de costos para comida', 'Sesion para calcular porciones, costos y precio final.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Educacion', 'Clase de Canva para catalogos', 'Aprende a crear catalogos simples para productos.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Educacion', 'Guia de fotografia con celular', 'Ideas practicas para mejorar fotos de producto.', 0.00, true, '/sample-products/asesoria.svg', 'En linea'),
+    ('Educacion', 'Plantilla de control de ventas', 'Recurso gratuito para registrar pedidos y entregas.', 0.00, true, '/sample-products/clase-online.svg', 'En linea'),
+    ('Educacion', 'Mentoria para primer bazar', 'Consejos para preparar inventario, precios y exhibicion.', 0.00, true, '/sample-products/regalos.svg', 'En linea'),
+    ('Apoyo comunitario', 'Intercambio de empaques', 'Espacio para compartir bolsas, cajas o materiales sobrantes.', 0.00, true, '/sample-products/regalos.svg', 'Ciudad de Mexico'),
+    ('Apoyo comunitario', 'Red de entregas locales', 'Contacto entre emprendedoras para coordinar entregas cercanas.', 0.00, true, '/sample-products/asesoria.svg', 'Guadalajara'),
+    ('Apoyo comunitario', 'Mesa para fotografia compartida', 'Espacio con luz natural para tomar fotos de producto.', 0.00, true, '/sample-products/plantas.svg', 'Queretaro'),
+    ('Apoyo comunitario', 'Grupo de compras al mayoreo', 'Union para comprar insumos y reducir costos.', 0.00, true, '/sample-products/regalos.svg', 'Monterrey'),
+    ('Apoyo comunitario', 'Banco de perchas y exhibidores', 'Prestamo comunitario de perchas, canastas y soportes.', 0.00, true, '/sample-products/taller-costura.svg', 'Merida'),
+    ('Apoyo comunitario', 'Mapa de bazares locales', 'Lista colaborativa de bazares y puntos de venta.', 0.00, true, '/sample-products/asesoria.svg', 'En linea'),
+    ('Ropa', 'Kimono ligero estampado', 'Prenda versatil para combinar con jeans, vestido o traje de bano.', 260.00, false, '/sample-products/taller-costura.svg', 'Cancun'),
+    ('Comida', 'Brownies por caja', 'Caja de brownies caseros para regalo o reventa.', 150.00, false, '/sample-products/pan-artesanal.svg', 'Leon'),
+    ('Artesanias', 'Collar minimalista', 'Collar sencillo con dije artesanal.', 115.00, false, '/sample-products/joyeria.svg', 'Oaxaca'),
+    ('Belleza', 'Cejas y depilacion facial', 'Servicio de arreglo de cejas con cita previa.', 90.00, false, '/sample-products/cosmetica-natural.svg', 'Tapachula'),
+    ('Servicios', 'Creacion de catalogo PDF', 'Catalogo limpio para enviar por WhatsApp o publicar en redes.', 220.00, false, '/sample-products/asesoria.svg', 'En linea'),
+    ('Educacion', 'Sesion de finanzas personales', 'Acompanamiento gratuito para separar dinero personal y negocio.', 0.00, true, '/sample-products/clase-online.svg', 'En linea')
+) as seed(category_name, title, description, price, is_free, image_url, city)
+  on true
+join categories c on c.name = seed.category_name
+where u.email = 'comunidad@nextfem.local'
+  and not exists (
+    select 1 from products p where p.user_id = u.id and p.title = seed.title
+  );

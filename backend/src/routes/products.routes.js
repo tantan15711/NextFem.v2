@@ -1,4 +1,5 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
 
 const { query } = require("../config/db");
 const asyncHandler = require("../middlewares/asyncHandler");
@@ -6,10 +7,24 @@ const auth = require("../middlewares/auth");
 
 const router = express.Router();
 
+const getOptionalUserId = (req) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+
+  if (!token) return null;
+
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET).id;
+  } catch (error) {
+    return null;
+  }
+};
+
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { category, city, search } = req.query;
+    const { category, city, freeOnly, maxPrice, minPrice, search, sort } = req.query;
+    const currentUserId = getOptionalUserId(req);
     const values = [];
     const filters = ["p.status = 'active'"];
 
@@ -30,6 +45,43 @@ router.get(
       );
     }
 
+    if (minPrice) {
+      values.push(Number(minPrice));
+      filters.push(`p.price >= $${values.length}`);
+    }
+
+    if (maxPrice) {
+      values.push(Number(maxPrice));
+      filters.push(`p.price <= $${values.length}`);
+    }
+
+    if (freeOnly === "true") {
+      filters.push("p.is_free = true");
+    }
+
+    if (currentUserId) {
+      values.push(currentUserId);
+      filters.push(
+        `not exists (
+          select 1
+          from user_blocks ub
+          where (ub.blocker_id = $${values.length} and ub.blocked_id = p.user_id)
+             or (ub.blocker_id = p.user_id and ub.blocked_id = $${values.length})
+        )`
+      );
+    }
+
+    const orderBy =
+      sort === "price_asc"
+        ? "p.price asc, p.created_at desc"
+        : sort === "price_desc"
+          ? "p.price desc, p.created_at desc"
+          : sort === "popular"
+            ? "favorite_count desc, p.created_at desc"
+            : sort === "searched"
+              ? "search_score desc, favorite_count desc, p.created_at desc"
+            : "p.created_at desc";
+
     const result = await query(
       `select
          p.id,
@@ -45,16 +97,93 @@ router.get(
          c.name as category_name,
          c.slug as category_slug,
          u.name as seller_name,
-         u.phone as seller_phone
+         u.phone as seller_phone,
+         coalesce(fav.favorite_count, 0)::int as favorite_count,
+         coalesce(searches.search_score, 0)::int as search_score,
+         round(coalesce(rev.avg_rating, 0), 1) as seller_rating,
+         coalesce(rev.review_count, 0)::int as seller_review_count
        from products p
        join users u on u.id = p.user_id
        left join categories c on c.id = p.category_id
+       left join (
+         select product_id, count(*) as favorite_count
+         from product_favorites
+         group by product_id
+       ) fav on fav.product_id = p.id
+       left join (
+         select
+           product_id,
+           sum(
+             case event_type
+               when 'contact' then 5
+               when 'open_image' then 3
+               when 'similar' then 2
+               when 'view' then 2
+               else 1
+             end
+           ) as search_score
+         from product_search_events
+         where product_id is not null
+           and created_at > now() - interval '30 days'
+         group by product_id
+       ) searches on searches.product_id = p.id
+       left join (
+         select seller_id, avg(rating)::numeric as avg_rating, count(*) as review_count
+         from seller_reviews
+         group by seller_id
+       ) rev on rev.seller_id = u.id
        where ${filters.join(" and ")}
-       order by p.created_at desc`,
+       order by ${orderBy}`,
       values
     );
 
     res.json(result.rows);
+  })
+);
+
+router.get(
+  "/trends",
+  asyncHandler(async (req, res) => {
+    const result = await query(
+      `select
+         trim(query) as query,
+         count(*)::int as searches
+       from product_search_events
+       where event_type = 'search'
+         and query is not null
+         and trim(query) <> ''
+         and created_at > now() - interval '30 days'
+       group by trim(query)
+       order by searches desc, query asc
+       limit 8`
+    );
+
+    res.json(result.rows);
+  })
+);
+
+router.post(
+  "/events",
+  asyncHandler(async (req, res) => {
+    const { productId = null, query: searchQuery = "", eventType = "search" } = req.body;
+    const allowedTypes = new Set(["search", "view", "open_image", "contact", "similar"]);
+
+    if (!allowedTypes.has(eventType)) {
+      return res.status(400).json({ message: "Evento no valido." });
+    }
+
+    await query(
+      `insert into product_search_events (user_id, product_id, query, event_type)
+       values ($1, $2, $3, $4)`,
+      [
+        getOptionalUserId(req),
+        productId || null,
+        searchQuery ? String(searchQuery).slice(0, 120) : null,
+        eventType
+      ]
+    );
+
+    res.status(201).json({ message: "Evento registrado." });
   })
 );
 

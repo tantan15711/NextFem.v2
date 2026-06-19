@@ -1,0 +1,1782 @@
+import { computed, reactive, ref } from "vue";
+import { io } from "socket.io-client";
+import { api, SOCKET_URL, storage } from "../services/api";
+
+const routeByView = {
+  home: "home",
+  auth: "auth",
+  publish: "publish",
+  profile: "profile",
+  chat: "chat",
+  courses: "courses"
+};
+
+const viewByRoute = Object.fromEntries(
+  Object.entries(routeByView).map(([view, route]) => [route, view])
+);
+
+let routerInstance = null;
+let refreshTimer = null;
+let undoTimer = null;
+let typingTimer = null;
+let socket = null;
+let joinedConversationId = null;
+
+const activeView = ref("home");
+const authMode = ref("login");
+const loading = ref(false);
+const notice = ref("");
+const error = ref("");
+const apiStatus = ref("checking");
+const productImageFile = ref(null);
+const productImagePreview = ref("");
+const profileImageFile = ref(null);
+const profileImagePreview = ref("");
+const initialized = ref(false);
+const showLogoutConfirm = ref(false);
+
+const user = ref(storage.getUser());
+const categories = ref([]);
+const products = ref([]);
+const myProducts = ref([]);
+const similarProducts = ref([]);
+const conversations = ref([]);
+const messages = ref([]);
+const selectedConversation = ref(null);
+const contactProduct = ref(null);
+const notifications = ref([]);
+const notificationPanelOpen = ref(false);
+const blockedUsers = ref([]);
+const typingUsers = ref({});
+const favoriteIds = ref([]);
+const favoriteProducts = ref([]);
+const sellerReviews = ref([]);
+const metrics = ref(null);
+const assistantResult = ref(null);
+const smartSearchResult = ref(null);
+const conversationSummary = ref(null);
+const quickReplies = ref([]);
+const safetyNotice = ref("");
+const searchTrends = ref([]);
+const selectedImage = ref(null);
+const chatMediaFile = ref(null);
+const chatMediaPreview = ref("");
+const chatLocationDraft = ref(null);
+const isRecordingAudio = ref(false);
+const audioRecorderSupported = ref(false);
+const undoToast = ref(null);
+let mediaRecorder = null;
+let recordedChunks = [];
+
+const filters = reactive({
+  search: "",
+  category: "",
+  city: "",
+  minPrice: "",
+  maxPrice: "",
+  freeOnly: false,
+  sort: "searched"
+});
+
+const authForm = reactive({
+  name: "",
+  email: "",
+  password: "",
+  phone: "",
+  city: "",
+  businessName: ""
+});
+
+const profileForm = reactive({
+  name: "",
+  phone: "",
+  city: "",
+  businessName: "",
+  bio: "",
+  avatarUrl: ""
+});
+
+const productForm = reactive({
+  title: "",
+  description: "",
+  categoryId: "",
+  price: 0,
+  city: "",
+  imageUrl: ""
+});
+
+const chatDraft = reactive({
+  initialMessage: "",
+  message: ""
+});
+
+const reviewForm = reactive({
+  sellerId: "",
+  productId: "",
+  rating: 5,
+  comment: ""
+});
+
+const courses = [
+  {
+    title: "DreamBuilder para mujeres emprendedoras",
+    provider: "DreamBuilder",
+    url: "https://spanish.dreambuilder.org/"
+  },
+  {
+    title: "Marketing Digital para Emprendedores",
+    provider: "Cursa",
+    url: "https://cursa.app/es/curso-gratis/marketing-digital-para-emprendedores-egag"
+  },
+  {
+    title: "Lean Canvas y Lean Startup",
+    provider: "Cursa",
+    url: "https://cursa.app/es/curso-gratis/lean-canvas-y-lean-startup-crea-y-valida-tu-modelo-de-negocio-ffdc"
+  },
+  {
+    title: "Crea tu propia empresa",
+    provider: "Campus Rafael del Pino",
+    url: "https://frdelpino.edu.es/courses/crea-tu-propia-empresa/"
+  },
+  {
+    title: "Emprende con la IA",
+    provider: "OLEWEB",
+    url: "https://oleweb.es/curso-emprende-con-la-ia/"
+  }
+];
+
+const isLoggedIn = computed(() => Boolean(user.value && storage.getToken()));
+const visibleProducts = computed(() => products.value);
+const selectedCategoryName = computed(() => {
+  const found = categories.value.find((category) => category.slug === filters.category);
+  return found ? found.name : "Todas";
+});
+const unreadMessages = computed(() =>
+  conversations.value.reduce((total, conversation) => {
+    return total + Number(conversation.unread_count || 0);
+  }, 0)
+);
+const unreadNotifications = computed(() =>
+  notifications.value.reduce((total, notification) => {
+    return total + (notification.is_read ? 0 : 1);
+  }, 0)
+);
+const selectedConversationBlocked = computed(() => {
+  if (!selectedConversation.value?.other_user_id) return false;
+
+  return blockedUsers.value.some(
+    (blocked) =>
+      String(blocked.blocked_id) === String(selectedConversation.value.other_user_id)
+  );
+});
+const selectedTypingNames = computed(() => {
+  if (!selectedConversation.value) return [];
+
+  return Object.values(typingUsers.value[selectedConversation.value.id] || {});
+});
+const notificationCount = computed(() => {
+  const reviewBoost = Number(metrics.value?.review_count || 0) > 0 ? 1 : 0;
+  return unreadMessages.value + unreadNotifications.value + reviewBoost;
+});
+const authButtonText = computed(() => {
+  if (loading.value) {
+    return authMode.value === "register" ? "Creando cuenta..." : "Entrando...";
+  }
+
+  return authMode.value === "register" ? "Crear cuenta" : "Entrar";
+});
+
+const setNotice = (message) => {
+  notice.value = message;
+  error.value = "";
+};
+
+const setError = (message) => {
+  error.value = message;
+  notice.value = "";
+};
+
+const clearUndoToast = () => {
+  if (undoTimer) {
+    window.clearTimeout(undoTimer);
+    undoTimer = null;
+  }
+
+  undoToast.value = null;
+};
+
+const showUndoToast = (message, undoAction) => {
+  clearUndoToast();
+  undoToast.value = {
+    message,
+    undoAction,
+    working: false
+  };
+  undoTimer = window.setTimeout(() => {
+    undoToast.value = null;
+    undoTimer = null;
+  }, 5000);
+};
+
+const undoLastAction = async () => {
+  if (!undoToast.value?.undoAction || undoToast.value.working) return;
+
+  undoToast.value.working = true;
+
+  try {
+    await undoToast.value.undoAction();
+    clearUndoToast();
+  } catch (err) {
+    handleRequestError(err);
+    clearUndoToast();
+  }
+};
+
+const showBrowserNotification = (title, body) => {
+  if (
+    typeof window === "undefined" ||
+    !("Notification" in window) ||
+    window.Notification.permission !== "granted"
+  ) {
+    return;
+  }
+
+  try {
+    new window.Notification(title, {
+      body,
+      icon: "/nextfem-logo.svg"
+    });
+  } catch (err) {
+    // Native notifications are optional; the in-app badge still works.
+  }
+};
+
+const syncRouteView = (routeName) => {
+  activeView.value = viewByRoute[routeName] || "home";
+};
+
+const setRouter = (router) => {
+  routerInstance = router;
+  syncRouteView(router.currentRoute.value.name);
+};
+
+const navigateTo = async (view) => {
+  activeView.value = view;
+
+  if (routerInstance && routerInstance.currentRoute.value.name !== routeByView[view]) {
+    await routerInstance.push({ name: routeByView[view] });
+  }
+
+  if (typeof window !== "undefined") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+};
+
+const handleRequestError = (err) => {
+  const message = err?.message || "No se pudo completar la solicitud.";
+
+  if (
+    message.includes("conectar") ||
+    message.includes("conexion") ||
+    message.includes("localhost:3000") ||
+    message.includes("tardo")
+  ) {
+    apiStatus.value = "offline";
+
+    if (activeView.value === "home") {
+      return;
+    }
+
+    setError("No se pudo completar la accion. Intenta de nuevo en unos segundos.");
+    return;
+  }
+
+  setError(message);
+};
+
+const markApiOnline = () => {
+  apiStatus.value = "online";
+};
+
+const checkApi = async () => {
+  apiStatus.value = "checking";
+
+  try {
+    await api.health();
+    markApiOnline();
+  } catch (err) {
+    apiStatus.value = "offline";
+  }
+};
+
+const connectSocket = () => {
+  if (!isLoggedIn.value || socket?.connected) return;
+
+  socket?.disconnect();
+  socket = io(SOCKET_URL, {
+    auth: {
+      token: storage.getToken()
+    },
+    transports: ["websocket", "polling"]
+  });
+
+  socket.on("connect", () => {
+    if (selectedConversation.value) {
+      socket.emit("conversation:join", selectedConversation.value.id);
+      joinedConversationId = selectedConversation.value.id;
+    }
+  });
+
+  socket.on("message:new", async ({ conversationId, message }) => {
+    const isOpen =
+      selectedConversation.value &&
+      String(selectedConversation.value.id) === String(conversationId);
+
+    if (isOpen) {
+      const exists = messages.value.some(
+        (item) => String(item.id) === String(message.id)
+      );
+
+      if (!exists) {
+        messages.value = [...messages.value, message];
+      }
+
+      await selectConversation(selectedConversation.value);
+      return;
+    }
+
+    await loadConversations(false);
+  });
+
+  socket.on("message:deleted", async ({ conversationId, messageId, scope, deletedForUserId }) => {
+    const isCurrentUserDelete =
+      scope === "me" && String(deletedForUserId) === String(user.value?.id);
+    const isOpen =
+      selectedConversation.value &&
+      String(selectedConversation.value.id) === String(conversationId);
+
+    if (isOpen) {
+      if (scope === "everyone") {
+        messages.value = messages.value.map((message) =>
+          String(message.id) === String(messageId)
+            ? {
+                ...message,
+                body: "Mensaje eliminado para todos",
+                media_url: null,
+                media_mime: null,
+                media_name: null,
+                is_deleted_for_everyone: true,
+                deleted_for_everyone_at:
+                  message.deleted_for_everyone_at || new Date().toISOString()
+              }
+            : message
+        );
+      } else if (isCurrentUserDelete) {
+        messages.value = messages.value.filter(
+          (message) => String(message.id) !== String(messageId)
+        );
+      }
+    }
+
+    await loadConversations(false);
+  });
+
+  socket.on("message:restored", async ({ conversationId }) => {
+    const isOpen =
+      selectedConversation.value &&
+      String(selectedConversation.value.id) === String(conversationId);
+
+    if (isOpen) {
+      messages.value = await api.messages(conversationId);
+    }
+
+    await loadConversations(false);
+  });
+
+  socket.on("message:read", ({ conversationId, readMessageIds }) => {
+    if (
+      !selectedConversation.value ||
+      String(selectedConversation.value.id) !== String(conversationId)
+    ) {
+      return;
+    }
+
+    const readIds = new Set(readMessageIds.map(String));
+    messages.value = messages.value.map((message) =>
+      readIds.has(String(message.id))
+        ? { ...message, read_at: message.read_at || new Date().toISOString() }
+        : message
+    );
+  });
+
+  socket.on("conversation:update", async () => {
+    await loadConversations(false);
+  });
+
+  socket.on("message:notify", async () => {
+    await loadConversations(false);
+  });
+
+  socket.on("conversation:typing", ({ conversationId, userId, userName, isTyping }) => {
+    if (String(userId) === String(user.value?.id)) return;
+
+    const current = typingUsers.value[conversationId] || {};
+
+    if (isTyping) {
+      typingUsers.value = {
+        ...typingUsers.value,
+        [conversationId]: {
+          ...current,
+          [userId]: userName || "La otra usuaria"
+        }
+      };
+      return;
+    }
+
+    const next = { ...current };
+    delete next[userId];
+    typingUsers.value = {
+      ...typingUsers.value,
+      [conversationId]: next
+    };
+  });
+
+  socket.on("notification:new", async ({ notifications: incoming = [] }) => {
+    notifications.value = [...incoming, ...notifications.value]
+      .filter(
+        (notification, index, list) =>
+          list.findIndex((item) => String(item.id) === String(notification.id)) === index
+      )
+      .slice(0, 30);
+
+    const latest = incoming[0];
+
+    if (latest) {
+      showBrowserNotification(latest.title, latest.body);
+    }
+  });
+};
+
+const disconnectSocket = () => {
+  if (typingTimer) {
+    window.clearTimeout(typingTimer);
+    typingTimer = null;
+  }
+
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+    joinedConversationId = null;
+  }
+};
+
+const money = (value) => {
+  const amount = Number(value || 0);
+
+  if (amount === 0) {
+    return "Apoyo gratuito";
+  }
+
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN"
+  }).format(amount);
+};
+
+const uniqueTextArray = (items = []) =>
+  [...new Set(items.map((item) => String(item || "").trim()).filter(Boolean))];
+
+const categoryInitial = (product) => {
+  return (product.category_name || product.title || "N").slice(0, 1).toUpperCase();
+};
+
+const trackProductEvent = async (payload) => {
+  try {
+    await api.trackProductEvent(payload);
+  } catch (err) {
+    // Search signals are useful, but should never interrupt the marketplace.
+  }
+};
+
+const openProductImage = async (product) => {
+  if (!product?.image_url) return;
+
+  selectedImage.value = {
+    url: product.image_url,
+    title: product.title,
+    seller: product.seller_name,
+    price: money(product.price)
+  };
+
+  await trackProductEvent({
+    productId: product.id,
+    query: filters.search,
+    eventType: "open_image"
+  });
+};
+
+const closeProductImage = () => {
+  selectedImage.value = null;
+};
+
+const compressImage = (file) => {
+  if (!file || !file.type.startsWith("image/")) return Promise.resolve(file);
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      const maxSide = 1800;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(objectUrl);
+
+          if (!blob || blob.size >= file.size) {
+            resolve(file);
+            return;
+          }
+
+          resolve(
+            new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), {
+              type: "image/webp",
+              lastModified: Date.now()
+            })
+          );
+        },
+        "image/webp",
+        0.84
+      );
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+
+    image.src = objectUrl;
+  });
+};
+
+const getMessageTypeForFile = (file) => {
+  if (!file) return "file";
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return "file";
+};
+
+const onChatMediaChange = (event) => {
+  const file = event.target.files?.[0];
+  chatMediaFile.value = file || null;
+  chatMediaPreview.value = file && file.type.startsWith("image/")
+    ? URL.createObjectURL(file)
+    : "";
+};
+
+const clearChatMedia = () => {
+  if (chatMediaPreview.value) {
+    URL.revokeObjectURL(chatMediaPreview.value);
+  }
+
+  chatMediaFile.value = null;
+  chatMediaPreview.value = "";
+};
+
+const buildLocationLabel = (lat, lng, live) => {
+  return live
+    ? `Ubicacion en tiempo real: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    : `Ubicacion fija: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+};
+
+const prepareLocationMessage = async (live = false) => {
+  if (!requireLogin()) return;
+
+  if (!navigator.geolocation) {
+    setError("Tu navegador no permite compartir ubicacion.");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      chatLocationDraft.value = {
+        locationLat: lat,
+        locationLng: lng,
+        locationLive: live,
+        locationLabel: buildLocationLabel(lat, lng, live),
+        locationExpiresAt: live
+          ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
+          : null
+      };
+      chatDraft.message = live
+        ? "Te comparto mi ubicacion en tiempo real por 30 minutos."
+        : "Te comparto mi ubicacion fija.";
+      setNotice(live ? "Ubicacion en tiempo real lista para enviar." : "Ubicacion fija lista para enviar.");
+    },
+    () => {
+      setError("No se pudo obtener tu ubicacion. Revisa permisos del navegador.");
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000
+    }
+  );
+};
+
+const clearLocationDraft = () => {
+  chatLocationDraft.value = null;
+};
+
+const startAudioRecording = async () => {
+  if (!requireLogin()) return;
+
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    audioRecorderSupported.value = false;
+    setError("Tu navegador no permite grabar audio aqui.");
+    return;
+  }
+
+  try {
+    audioRecorderSupported.value = true;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
+      }
+    };
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(recordedChunks, { type: "audio/webm" });
+      stream.getTracks().forEach((track) => track.stop());
+      const audioFile = new File([blob], `audio-nextfem-${Date.now()}.webm`, {
+        type: "audio/webm"
+      });
+      await sendMediaMessage(audioFile, "Audio grabado en NextFem");
+    };
+    mediaRecorder.start();
+    isRecordingAudio.value = true;
+  } catch (err) {
+    setError("No se pudo iniciar la grabacion. Revisa permisos del microfono.");
+  }
+};
+
+const stopAudioRecording = () => {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+  }
+
+  isRecordingAudio.value = false;
+};
+
+const uploadSelectedImage = async (file) => {
+  if (!file) return "";
+
+  const compressed = await compressImage(file);
+  const result = await api.uploadImage(compressed);
+  markApiOnline();
+  return result.imageUrl;
+};
+
+const onProductImageChange = (event) => {
+  const file = event.target.files?.[0];
+  productImageFile.value = file || null;
+  productImagePreview.value = file ? URL.createObjectURL(file) : "";
+};
+
+const clearProductImage = () => {
+  productImageFile.value = null;
+  productImagePreview.value = "";
+};
+
+const onProfileImageChange = (event) => {
+  const file = event.target.files?.[0];
+  profileImageFile.value = file || null;
+  profileImagePreview.value = file ? URL.createObjectURL(file) : "";
+};
+
+const loadProducts = async () => {
+  loading.value = true;
+
+  try {
+    products.value = await api.products({
+      ...filters,
+      freeOnly: filters.freeOnly ? "true" : ""
+    });
+    if (filters.search.trim()) {
+      await trackProductEvent({
+        query: filters.search.trim(),
+        eventType: "search"
+      });
+      await loadSearchTrends();
+    }
+    markApiOnline();
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const loadSearchTrends = async () => {
+  try {
+    searchTrends.value = await api.productTrends();
+  } catch (err) {
+    searchTrends.value = [];
+  }
+};
+
+const applySearchTrend = async (trend) => {
+  filters.search = trend.query;
+  filters.sort = "searched";
+  await loadProducts();
+};
+
+const smartSearchWithAI = async () => {
+  const queryText = filters.search.trim();
+  const city = filters.city.trim();
+
+  if (!queryText && !city) {
+    setError("Escribe lo que quieres encontrar para que Impulso IA ajuste la busqueda.");
+    return;
+  }
+
+  loading.value = true;
+
+  try {
+    const result = await api.aiSmartSearch({ queryText, city });
+    smartSearchResult.value = result;
+
+    filters.search = result.search || filters.search;
+    filters.city = result.city || filters.city;
+    filters.category = result.categorySlug || "";
+    filters.minPrice = result.minPrice || "";
+    filters.maxPrice = result.maxPrice || "";
+    filters.freeOnly = Boolean(result.freeOnly);
+    filters.sort = result.sort || "searched";
+
+    await loadProducts();
+    markApiOnline();
+    setNotice(
+      result.aiMode === "openai"
+        ? "Impulso IA conectada ajusto tu busqueda."
+        : "Impulso IA local ajusto tu busqueda."
+    );
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const loadFavoriteIds = async () => {
+  if (!isLoggedIn.value) {
+    favoriteIds.value = [];
+    return;
+  }
+
+  favoriteIds.value = (await api.favoriteIds()).map(String);
+};
+
+const loadFavorites = async () => {
+  if (!isLoggedIn.value) return;
+  favoriteProducts.value = await api.favorites();
+};
+
+const toggleFavorite = async (product) => {
+  if (!requireLogin()) return;
+
+  const productId = String(product.id);
+
+  try {
+    if (favoriteIds.value.includes(productId)) {
+      await api.removeFavorite(product.id);
+      favoriteIds.value = favoriteIds.value.filter((id) => id !== productId);
+      setNotice("Producto quitado de favoritos.");
+    } else {
+      await api.addFavorite(product.id);
+      favoriteIds.value = [...favoriteIds.value, productId];
+      setNotice("Producto guardado para verlo despues.");
+    }
+
+    await loadFavorites();
+    await loadProducts();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const reportProduct = async (product) => {
+  if (!requireLogin()) return;
+
+  const details = window.prompt(
+    `Cuéntanos qué pasa con "${product.title}". Puedes escribir una señal de alerta o dejarlo en blanco.`
+  );
+
+  if (details === null) return;
+
+  try {
+    await api.reportProduct(product.id, {
+      reason: "revision",
+      details
+    });
+    setNotice("Gracias. Revisaremos esta publicacion para cuidar la comunidad.");
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const loadCategories = async () => {
+  categories.value = await api.categories();
+  markApiOnline();
+};
+
+const syncProfileForm = () => {
+  if (!user.value) return;
+
+  profileForm.name = user.value.name || "";
+  profileForm.phone = user.value.phone || "";
+  profileForm.city = user.value.city || "";
+  profileForm.businessName = user.value.business_name || "";
+  profileForm.bio = user.value.bio || "";
+  profileForm.avatarUrl = user.value.avatar_url || "";
+};
+
+const loadMe = async () => {
+  if (!storage.getToken()) return;
+
+  try {
+    user.value = await api.me();
+    storage.setUser(user.value);
+    syncProfileForm();
+  } catch (err) {
+    storage.clear();
+    user.value = null;
+    handleRequestError(err);
+  }
+};
+
+const requireLogin = () => {
+  if (isLoggedIn.value) return true;
+
+  authMode.value = "login";
+  activeView.value = "auth";
+  setError("Inicia sesion para continuar.");
+
+  if (routerInstance && routerInstance.currentRoute.value.name !== "auth") {
+    routerInstance.push({ name: "auth" });
+  }
+
+  return false;
+};
+
+const goTo = async (view) => {
+  notice.value = "";
+  error.value = "";
+
+  if (["publish", "profile", "chat"].includes(view) && !requireLogin()) {
+    return false;
+  }
+
+  await navigateTo(view);
+
+  if (view === "profile") {
+    await loadMyProducts();
+    await loadFavorites();
+    await loadMetrics();
+    await loadSellerReviews();
+  }
+
+  if (view === "chat") {
+    selectedConversation.value = null;
+    messages.value = [];
+    await loadConversations(false);
+  }
+
+  return true;
+};
+
+const submitAuth = async () => {
+  if (loading.value) return;
+
+  loading.value = true;
+  error.value = "";
+  notice.value = "";
+
+  try {
+    const payload =
+      authMode.value === "register"
+        ? {
+            name: authForm.name,
+            email: authForm.email,
+            password: authForm.password,
+            phone: authForm.phone,
+            city: authForm.city,
+            businessName: authForm.businessName
+          }
+        : {
+            email: authForm.email,
+            password: authForm.password
+          };
+
+    const result =
+      authMode.value === "register"
+        ? await api.register(payload)
+        : await api.login(payload);
+
+    storage.setSession(result.token, result.user);
+    user.value = result.user;
+    syncProfileForm();
+    markApiOnline();
+    connectSocket();
+    await loadConversations(false);
+    await loadNotifications();
+    await loadBlockedUsers();
+    await loadFavoriteIds();
+    await loadMetrics();
+    await navigateTo("home");
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const requestLogout = () => {
+  showLogoutConfirm.value = true;
+};
+
+const cancelLogout = () => {
+  showLogoutConfirm.value = false;
+};
+
+const confirmLogout = async () => {
+  showLogoutConfirm.value = false;
+  storage.clear();
+  user.value = null;
+  myProducts.value = [];
+  favoriteIds.value = [];
+  favoriteProducts.value = [];
+  metrics.value = null;
+  sellerReviews.value = [];
+  conversations.value = [];
+  notifications.value = [];
+  notificationPanelOpen.value = false;
+  blockedUsers.value = [];
+  typingUsers.value = {};
+  messages.value = [];
+  selectedConversation.value = null;
+  quickReplies.value = [];
+  safetyNotice.value = "";
+  conversationSummary.value = null;
+  clearChatMedia();
+  clearLocationDraft();
+  clearUndoToast();
+  disconnectSocket();
+  await navigateTo("home");
+  setNotice("Sesion cerrada. Tu perfil estara listo cuando vuelvas.");
+};
+
+const saveProfile = async () => {
+  if (!requireLogin()) return;
+  loading.value = true;
+
+  try {
+    let avatarUrl = profileForm.avatarUrl;
+
+    if (profileImageFile.value) {
+      avatarUrl = await uploadSelectedImage(profileImageFile.value);
+      profileForm.avatarUrl = avatarUrl;
+    }
+
+    const result = await api.updateProfile({ ...profileForm, avatarUrl });
+    user.value = result.user;
+    storage.setUser(result.user);
+    profileImageFile.value = null;
+    profileImagePreview.value = "";
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const createProduct = async () => {
+  if (!requireLogin()) return;
+  loading.value = true;
+
+  try {
+    let imageUrl = productForm.imageUrl;
+
+    if (productImageFile.value) {
+      imageUrl = await uploadSelectedImage(productImageFile.value);
+    }
+
+    await api.createProduct({
+      title: productForm.title,
+      description: productForm.description,
+      categoryId: productForm.categoryId || null,
+      price: Number(productForm.price || 0),
+      isFree: Number(productForm.price || 0) === 0,
+      city: productForm.city,
+      imageUrl
+    });
+
+    productForm.title = "";
+    productForm.description = "";
+    productForm.categoryId = "";
+    productForm.price = 0;
+    productForm.city = user.value?.city || "";
+    productForm.imageUrl = "";
+    clearProductImage();
+
+    setNotice("Publicacion creada correctamente.");
+    await loadProducts();
+    await loadMyProducts();
+    await navigateTo("profile");
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const loadMyProducts = async () => {
+  if (!isLoggedIn.value) return;
+  myProducts.value = await api.myProducts();
+};
+
+const loadMetrics = async () => {
+  if (!isLoggedIn.value) {
+    metrics.value = null;
+    return;
+  }
+
+  metrics.value = await api.myMetrics();
+};
+
+const loadSellerReviews = async (sellerId = user.value?.id) => {
+  if (!sellerId) return;
+  sellerReviews.value = await api.sellerReviews(sellerId);
+};
+
+const saveReview = async () => {
+  if (!requireLogin() || !reviewForm.sellerId) return;
+
+  try {
+    const result = await api.createSellerReview(reviewForm.sellerId, {
+      rating: Number(reviewForm.rating || 5),
+      comment: reviewForm.comment,
+      productId: reviewForm.productId || null
+    });
+    reviewForm.comment = "";
+    setNotice(result.message);
+    await loadSellerReviews(reviewForm.sellerId);
+    await loadMetrics();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const generateProductWithAI = async () => {
+  if (!requireLogin()) return;
+
+  try {
+    const result = await api.aiProductCopy({
+      title: productForm.title,
+      categoryId: productForm.categoryId,
+      city: productForm.city,
+      price: productForm.price
+    });
+
+    assistantResult.value = result;
+
+    if (!productForm.title && result.suggestedTitle) {
+      productForm.title = result.suggestedTitle;
+    }
+
+    productForm.description = result.description;
+
+    if (!productForm.categoryId && result.categoryId) {
+      productForm.categoryId = result.categoryId;
+    }
+
+    if (!Number(productForm.price || 0)) {
+      productForm.price = result.suggestedPrice;
+    }
+
+    setNotice(
+      result.aiMode === "openai"
+        ? "Impulso IA conectada preparo tu publicacion."
+        : "Impulso IA local preparo tu publicacion."
+    );
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const deleteProduct = async (product) => {
+  if (!requireLogin()) return;
+
+  const ok = window.confirm(`Eliminar "${product.title}"?`);
+  if (!ok) return;
+
+  try {
+    await api.deleteProduct(product.id);
+    setNotice("Publicacion eliminada.");
+    await loadProducts();
+    await loadMyProducts();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const showSimilar = async (product) => {
+  try {
+    await trackProductEvent({
+      productId: product.id,
+      query: filters.search,
+      eventType: "similar"
+    });
+    similarProducts.value = await api.similarProducts(product.id);
+    markApiOnline();
+    setNotice(`Productos similares a "${product.title}".`);
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const openContact = async (product) => {
+  if (!requireLogin()) return;
+
+  contactProduct.value = product;
+  chatDraft.initialMessage = `Hola, me interesa "${product.title}". Me gustaria saber mas.`;
+  await trackProductEvent({
+    productId: product.id,
+    query: filters.search,
+    eventType: "contact"
+  });
+  await navigateTo("chat");
+};
+
+const loadConversations = async (autoSelect = false) => {
+  if (!isLoggedIn.value) return;
+
+  conversations.value = await api.conversations();
+  markApiOnline();
+
+  if (autoSelect && !selectedConversation.value && conversations.value.length > 0) {
+    await selectConversation(conversations.value[0]);
+  }
+};
+
+const loadNotifications = async () => {
+  if (!isLoggedIn.value) {
+    notifications.value = [];
+    return;
+  }
+
+  try {
+    notifications.value = await api.notifications();
+  } catch (err) {
+    notifications.value = [];
+  }
+};
+
+const loadBlockedUsers = async () => {
+  if (!isLoggedIn.value) {
+    blockedUsers.value = [];
+    return;
+  }
+
+  try {
+    blockedUsers.value = await api.blockedUsers();
+  } catch (err) {
+    blockedUsers.value = [];
+  }
+};
+
+const toggleNotificationsPanel = async () => {
+  if (!requireLogin()) return;
+
+  notificationPanelOpen.value = !notificationPanelOpen.value;
+
+  if (notificationPanelOpen.value) {
+    await loadNotifications();
+  }
+};
+
+const closeNotificationsPanel = () => {
+  notificationPanelOpen.value = false;
+};
+
+const markNotificationsRead = async () => {
+  if (!isLoggedIn.value) return;
+
+  try {
+    await api.markNotificationsRead();
+    notifications.value = notifications.value.map((notification) => ({
+      ...notification,
+      is_read: true
+    }));
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const openNotification = async (notification) => {
+  if (!notification) return;
+
+  try {
+    if (!notification.is_read) {
+      await api.markNotificationRead(notification.id);
+      notifications.value = notifications.value.map((item) =>
+        String(item.id) === String(notification.id)
+          ? { ...item, is_read: true }
+          : item
+      );
+    }
+
+    notificationPanelOpen.value = false;
+    await goTo("chat");
+
+    const conversation = conversations.value.find(
+      (item) => String(item.id) === String(notification.conversation_id)
+    );
+
+    if (conversation) {
+      await selectConversation(conversation);
+    }
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const requestBrowserNotifications = async () => {
+  if (!requireLogin()) return;
+
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    setError("Este navegador no permite notificaciones.");
+    return;
+  }
+
+  if (window.Notification.permission === "granted") {
+    setNotice("Las notificaciones ya estan activas.");
+    return;
+  }
+
+  if (window.Notification.permission === "denied") {
+    setError("Las notificaciones estan bloqueadas en el navegador.");
+    return;
+  }
+
+  const permission = await window.Notification.requestPermission();
+
+  if (permission === "granted") {
+    setNotice("Notificaciones activadas.");
+  }
+};
+
+const blockSelectedConversationUser = async () => {
+  if (!selectedConversation.value?.other_user_id) return;
+
+  const ok = window.confirm(
+    `Bloquear a ${selectedConversation.value.other_user_name}? No podra enviarte mensajes.`
+  );
+
+  if (!ok) return;
+
+  try {
+    const result = await api.blockUser(selectedConversation.value.other_user_id, {
+      reason: "seguridad",
+      details: "Bloqueada desde el chat"
+    });
+    await loadBlockedUsers();
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const unblockSelectedConversationUser = async () => {
+  if (!selectedConversation.value?.other_user_id) return;
+
+  try {
+    const result = await api.unblockUser(selectedConversation.value.other_user_id);
+    await loadBlockedUsers();
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const startConversation = async () => {
+  if (!contactProduct.value) return;
+
+  try {
+    const result = await api.startConversation({
+      productId: contactProduct.value.id,
+      initialMessage: chatDraft.initialMessage
+    });
+
+    contactProduct.value = null;
+    chatDraft.initialMessage = "";
+    selectedConversation.value = result.conversation;
+    setNotice("Conversacion abierta.");
+    await loadConversations();
+    await selectConversation(result.conversation);
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const selectConversation = async (conversation) => {
+  if (socket && joinedConversationId) {
+    socket.emit("conversation:leave", joinedConversationId);
+  }
+
+  selectedConversation.value = conversation;
+  conversationSummary.value = null;
+  connectSocket();
+
+  if (socket) {
+    socket.emit("conversation:join", conversation.id);
+    joinedConversationId = conversation.id;
+  }
+
+  messages.value = await api.messages(conversation.id);
+  conversations.value = conversations.value.map((item) =>
+    item.id === conversation.id ? { ...item, unread_count: 0 } : item
+  );
+  await loadQuickReplies();
+  markApiOnline();
+};
+
+const closeConversation = () => {
+  if (socket && joinedConversationId) {
+    socket.emit("conversation:leave", joinedConversationId);
+  }
+
+  joinedConversationId = null;
+  selectedConversation.value = null;
+  contactProduct.value = null;
+  messages.value = [];
+  typingUsers.value = {};
+  quickReplies.value = [];
+  safetyNotice.value = "";
+  conversationSummary.value = null;
+  clearChatMedia();
+  clearLocationDraft();
+};
+
+const restoreDeletedMessage = async (conversationId, messageId, scope) => {
+  await api.restoreMessage(conversationId, messageId, scope);
+
+  if (
+    selectedConversation.value &&
+    String(selectedConversation.value.id) === String(conversationId)
+  ) {
+    messages.value = await api.messages(conversationId);
+  }
+
+  await loadConversations(false);
+  setNotice("Eliminacion deshecha.");
+};
+
+const deleteMessage = async (message, scope = "me") => {
+  if (!selectedConversation.value || !message?.id) return;
+
+  const conversationId = selectedConversation.value.id;
+  const previousMessages = messages.value;
+
+  try {
+    if (scope === "everyone") {
+      messages.value = messages.value.map((item) =>
+        String(item.id) === String(message.id)
+          ? {
+              ...item,
+              body: "Mensaje eliminado para todos",
+              media_url: null,
+              media_mime: null,
+              media_name: null,
+              is_deleted_for_everyone: true,
+              deleted_for_everyone_at: new Date().toISOString()
+            }
+          : item
+      );
+    } else {
+      messages.value = messages.value.filter(
+        (item) => String(item.id) !== String(message.id)
+      );
+    }
+
+    await api.deleteMessage(conversationId, message.id, scope);
+    await loadConversations(false);
+    showUndoToast(
+      scope === "everyone" ? "Mensaje eliminado para todos" : "Mensaje eliminado para mi",
+      () => restoreDeletedMessage(conversationId, message.id, scope)
+    );
+  } catch (err) {
+    messages.value = previousMessages;
+    handleRequestError(err);
+  }
+};
+
+const loadQuickReplies = async () => {
+  if (!selectedConversation.value) {
+    quickReplies.value = [];
+    return;
+  }
+
+  try {
+    const latestMessage = messages.value[messages.value.length - 1]?.body || "";
+    const result = await api.aiQuickReplies({
+      productTitle: selectedConversation.value.product_title,
+      incomingMessage: latestMessage
+    });
+    quickReplies.value = result.replies || [];
+  } catch (err) {
+    quickReplies.value = [
+      "Gracias por escribir. Con gusto te comparto mas detalles.",
+      "Podemos coordinar por aqui para mantener la conversacion segura."
+    ];
+  }
+};
+
+const summarizeConversationWithAI = async () => {
+  if (!selectedConversation.value) return;
+
+  try {
+    const result = await api.aiConversationSummary({
+      productTitle: selectedConversation.value.product_title,
+      messages: messages.value.map((message) => ({
+        sender: String(message.sender_id) === String(user.value?.id)
+          ? "yo"
+          : selectedConversation.value.other_user_name || "otra usuaria",
+        body:
+          message.is_deleted_for_everyone
+            ? ""
+            : message.body || message.media_name || message.location_label || "",
+        type: message.message_type || "text"
+      }))
+    });
+
+    conversationSummary.value = result;
+
+    if (result.quickReply) {
+      quickReplies.value = uniqueTextArray([result.quickReply, ...quickReplies.value]).slice(0, 4);
+    }
+
+    setNotice(
+      result.aiMode === "openai"
+        ? "Impulso IA conectada resumio la conversacion."
+        : "Impulso IA local resumio la conversacion."
+    );
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const applyQuickReply = (reply) => {
+  chatDraft.message = reply;
+  emitTyping();
+};
+
+const emitTyping = () => {
+  if (!socket || !selectedConversation.value) return;
+
+  socket.emit("conversation:typing", {
+    conversationId: selectedConversation.value.id,
+    isTyping: true
+  });
+
+  if (typingTimer) {
+    window.clearTimeout(typingTimer);
+  }
+
+  typingTimer = window.setTimeout(() => {
+    socket?.emit("conversation:typing", {
+      conversationId: selectedConversation.value.id,
+      isTyping: false
+    });
+    typingTimer = null;
+  }, 1500);
+};
+
+const sendMediaMessage = async (file, caption = "") => {
+  if (!selectedConversation.value || !file) return;
+
+  try {
+    const uploadFile = file.type.startsWith("image/") ? await compressImage(file) : file;
+    const result = await api.uploadFile(uploadFile);
+    const messageType = getMessageTypeForFile(uploadFile);
+    const sent = await api.sendMessage(selectedConversation.value.id, {
+      body: caption || chatDraft.message,
+      messageType,
+      mediaUrl: result.imageUrl,
+      mediaMime: uploadFile.type,
+      mediaName: uploadFile.name
+    });
+
+    const exists = messages.value.some(
+      (message) => String(message.id) === String(sent.messageData.id)
+    );
+
+    if (!exists) {
+      messages.value = [...messages.value, sent.messageData];
+    }
+
+    clearChatMedia();
+    chatDraft.message = "";
+    await loadConversations(false);
+    await loadQuickReplies();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const sendMessage = async () => {
+  if (!selectedConversation.value) return;
+
+  if (chatMediaFile.value) {
+    await sendMediaMessage(chatMediaFile.value);
+    return;
+  }
+
+  if (chatLocationDraft.value) {
+    try {
+      const result = await api.sendMessage(selectedConversation.value.id, {
+        body: chatDraft.message,
+        messageType: "location",
+        ...chatLocationDraft.value
+      });
+
+      chatDraft.message = "";
+      clearLocationDraft();
+
+      const exists = messages.value.some(
+        (message) => String(message.id) === String(result.messageData.id)
+      );
+
+      if (!exists) {
+        messages.value = [...messages.value, result.messageData];
+      }
+
+      await loadConversations(false);
+      await loadQuickReplies();
+    } catch (err) {
+      handleRequestError(err);
+    }
+    return;
+  }
+
+  if (!chatDraft.message.trim()) return;
+
+  try {
+    const safety = await api.aiSafetyCheck({ text: chatDraft.message });
+    safetyNotice.value =
+      safety.riskLevel === "bajo"
+        ? ""
+        : [safety.advice, safety.suggestedResponse].filter(Boolean).join(" ");
+    const result = await api.sendMessage(
+      selectedConversation.value.id,
+      chatDraft.message
+    );
+    chatDraft.message = "";
+    const exists = messages.value.some(
+      (message) => String(message.id) === String(result.messageData.id)
+    );
+
+    if (!exists) {
+      messages.value = [...messages.value, result.messageData];
+    }
+
+    await loadConversations(false);
+    await loadQuickReplies();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const refreshChatState = async () => {
+  if (!isLoggedIn.value) return;
+
+  try {
+    if (activeView.value === "chat" && selectedConversation.value) {
+      messages.value = await api.messages(selectedConversation.value.id);
+    }
+
+    await loadConversations(false);
+    await loadNotifications();
+    await loadBlockedUsers();
+  } catch (err) {
+    // Silent refresh should not interrupt the user while she is reading.
+  }
+};
+
+const initializeApp = async () => {
+  if (initialized.value) return;
+  initialized.value = true;
+
+  try {
+    await checkApi();
+    await Promise.all([loadCategories(), loadProducts(), loadSearchTrends(), loadMe()]);
+    connectSocket();
+    await loadConversations(false);
+    await loadNotifications();
+    await loadBlockedUsers();
+    await loadFavoriteIds();
+    await loadMetrics();
+    productForm.city = user.value?.city || "";
+    refreshTimer = window.setInterval(refreshChatState, 30000);
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const teardownApp = () => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+
+  disconnectSocket();
+  initialized.value = false;
+};
+
+export const useMarketplace = () => ({
+  activeView,
+  authMode,
+  loading,
+  notice,
+  error,
+  apiStatus,
+  productImageFile,
+  productImagePreview,
+  profileImageFile,
+  profileImagePreview,
+  showLogoutConfirm,
+  user,
+  categories,
+  products,
+  myProducts,
+  favoriteIds,
+  favoriteProducts,
+  sellerReviews,
+  metrics,
+  assistantResult,
+  smartSearchResult,
+  conversationSummary,
+  quickReplies,
+  safetyNotice,
+  searchTrends,
+  selectedImage,
+  chatMediaFile,
+  chatMediaPreview,
+  chatLocationDraft,
+  isRecordingAudio,
+  audioRecorderSupported,
+  similarProducts,
+  conversations,
+  messages,
+  selectedConversation,
+  contactProduct,
+  notifications,
+  notificationPanelOpen,
+  blockedUsers,
+  typingUsers,
+  undoToast,
+  filters,
+  authForm,
+  profileForm,
+  productForm,
+  chatDraft,
+  reviewForm,
+  courses,
+  isLoggedIn,
+  visibleProducts,
+  selectedCategoryName,
+  unreadMessages,
+  unreadNotifications,
+  notificationCount,
+  selectedConversationBlocked,
+  selectedTypingNames,
+  authButtonText,
+  setRouter,
+  syncRouteView,
+  goTo,
+  requireLogin,
+  requestLogout,
+  cancelLogout,
+  confirmLogout,
+  money,
+  categoryInitial,
+  onProductImageChange,
+  clearProductImage,
+  onProfileImageChange,
+  loadProducts,
+  loadCategories,
+  loadMe,
+  loadMyProducts,
+  loadFavoriteIds,
+  loadFavorites,
+  toggleFavorite,
+  reportProduct,
+  loadMetrics,
+  loadSellerReviews,
+  saveReview,
+  generateProductWithAI,
+  submitAuth,
+  saveProfile,
+  createProduct,
+  deleteProduct,
+  showSimilar,
+  openContact,
+  loadConversations,
+  loadNotifications,
+  loadBlockedUsers,
+  toggleNotificationsPanel,
+  closeNotificationsPanel,
+  markNotificationsRead,
+  openNotification,
+  requestBrowserNotifications,
+  blockSelectedConversationUser,
+  unblockSelectedConversationUser,
+  startConversation,
+  selectConversation,
+  closeConversation,
+  loadQuickReplies,
+  applyQuickReply,
+  emitTyping,
+  onChatMediaChange,
+  clearChatMedia,
+  prepareLocationMessage,
+  clearLocationDraft,
+  startAudioRecording,
+  stopAudioRecording,
+  openProductImage,
+  closeProductImage,
+  loadSearchTrends,
+  applySearchTrend,
+  smartSearchWithAI,
+  trackProductEvent,
+  deleteMessage,
+  summarizeConversationWithAI,
+  undoLastAction,
+  clearUndoToast,
+  sendMessage,
+  initializeApp,
+  teardownApp
+});

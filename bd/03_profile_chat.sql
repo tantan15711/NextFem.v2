@@ -19,11 +19,19 @@ create table if not exists messages (
   conversation_id bigint not null references conversations(id) on delete cascade,
   sender_id bigint not null references users(id) on delete cascade,
   body text not null,
+  encrypted_body text,
+  body_iv text,
+  body_auth_tag text,
+  body_version varchar(40),
   read_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 alter table messages
+  add column if not exists encrypted_body text,
+  add column if not exists body_iv text,
+  add column if not exists body_auth_tag text,
+  add column if not exists body_version varchar(40),
   add column if not exists read_at timestamptz;
 
 create index if not exists conversations_buyer_id_idx on conversations(buyer_id);

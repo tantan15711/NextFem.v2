@@ -16,6 +16,15 @@ Copia `.env.example` y renombralo a `.env`.
 
 Luego cambia `TU_PASSWORD` por la contrasena real de tu usuario `postgres`.
 
+La IA funciona sin configuracion extra usando sugerencias locales. Si quieres
+conectarla con OpenAI, agrega tambien:
+
+```env
+OPENAI_API_KEY=tu_api_key
+OPENAI_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT=low
+```
+
 ## 3. Crear la base de datos
 
 En PostgreSQL crea una base llamada:

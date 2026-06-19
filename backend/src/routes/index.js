@@ -2,8 +2,10 @@ const express = require("express");
 const { query } = require("../config/db");
 
 const authRoutes = require("./auth.routes");
+const assistantRoutes = require("./assistant.routes");
 const categoryRoutes = require("./categories.routes");
 const conversationRoutes = require("./conversations.routes");
+const engagementRoutes = require("./engagement.routes");
 const productRoutes = require("./products.routes");
 const uploadRoutes = require("./uploads.routes");
 const asyncHandler = require("../middlewares/asyncHandler");
@@ -23,8 +25,10 @@ router.get(
 );
 
 router.use("/auth", authRoutes);
+router.use("/assistant", assistantRoutes);
 router.use("/categories", categoryRoutes);
 router.use("/conversations", conversationRoutes);
+router.use("/engagement", engagementRoutes);
 router.use("/products", productRoutes);
 router.use("/uploads", uploadRoutes);
 

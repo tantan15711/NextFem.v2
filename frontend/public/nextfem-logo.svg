@@ -10,7 +10,7 @@
       <stop offset="1" stop-color="#8D4CFF"/>
     </linearGradient>
     <filter id="soft" x="71" y="67" width="578" height="584" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#6D1637" flood-opacity="0.12"/>
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#C74485" flood-opacity="0.12"/>
     </filter>
   </defs>
   <rect width="720" height="720" rx="156" fill="#FFFDFD"/>

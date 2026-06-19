@@ -1,5 +1,10 @@
 import { createApp } from "vue";
 import App from "./App.vue";
-import "./assets/styles.css";
+import router from "./router";
+import { mobileKeyboard } from "./directives/mobileKeyboard";
+import "./styles/app.css";
 
-createApp(App).mount("#app");
+createApp(App)
+  .directive("mobile-keyboard", mobileKeyboard)
+  .use(router)
+  .mount("#app");
