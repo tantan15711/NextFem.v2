@@ -62,6 +62,11 @@ el backend esta encendido al mismo tiempo que el frontend.
 En produccion pasa lo mismo, pero con el backend desplegado en internet. Para
 subirlo rapido revisa [DEPLOY_NOW.md](DEPLOY_NOW.md).
 
+Configuracion recomendada de despliegue:
+
+- Backend y PostgreSQL en Railway usando [railway.json](railway.json).
+- Frontend en Vercel usando [vercel.json](vercel.json).
+
 Si PowerShell bloquea `npm`, usa `npm.cmd` en los mismos comandos, por ejemplo
 `npm.cmd run dev`.
 

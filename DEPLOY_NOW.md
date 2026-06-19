@@ -1,60 +1,87 @@
-# Subir NextFem rapido
+# Subir NextFem con Railway y Vercel
 
-Tu proyecto necesita dos despliegues:
+Tu proyecto queda separado asi:
 
+- Backend + PostgreSQL: Railway.
 - Frontend: Vercel.
-- Backend + PostgreSQL: Render, Railway o similar.
 
-No necesitas tener tu backend local encendido. En produccion el backend debe estar
-desplegado en internet.
+No necesitas tener tu backend local encendido. Railway sera el backend publico.
 
-## 1. Backend en Render
+## 1. Crear backend en Railway
 
-1. Sube este repositorio a GitHub.
-2. En Render, crea un `Blueprint`.
-3. Selecciona este repositorio.
-4. Render usara `render.yaml` y creara:
-   - `nextfem-backend`
-   - `nextfem-db`
-5. Cuando termine, abre:
+1. En Railway crea un proyecto nuevo.
+2. Agrega una base de datos: `New > Database > PostgreSQL`.
+3. Agrega un servicio desde GitHub: `New > GitHub Repo`.
+4. Selecciona este repo.
+5. Railway usara `railway.json` desde la raiz.
 
-```txt
-https://TU-BACKEND.onrender.com/api/health
+Railway ejecutara:
+
+```bash
+npm run railway:build
+npm run railway:db
+npm run railway:start
 ```
 
-Si responde `API y base de datos funcionando`, el backend ya esta listo.
+## 2. Variables del backend en Railway
 
-Si Render pide tarjeta, revisa que el servicio y la base esten en `Free`.
-El archivo `render.yaml` ya trae `plan: free`. Si aun asi no te deja crear la
-base gratis, crea la base en Neon o Supabase y usa Render solo para el backend.
-
-Variables para Render usando Neon o Supabase:
+En el servicio del backend, entra a `Variables` y agrega:
 
 ```env
 NODE_ENV=production
-DATABASE_URL=pega_aqui_la_url_postgres_de_neon_o_supabase
-DATABASE_SSL=true
-JWT_SECRET=un_secreto_largo
-MESSAGE_SECRET=otro_secreto_largo
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_SSL=false
+JWT_SECRET=usa_generate
+MESSAGE_SECRET=usa_generate
 FRONTEND_URL=https://next-fem-v2.vercel.app
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT=low
 ```
 
-## 2. Variables del frontend en Vercel
+Notas:
 
-En tu proyecto de Vercel entra a:
+- Si tu servicio de PostgreSQL no se llama `Postgres`, cambia la referencia por
+  el nombre real. Ejemplo: `${{PostgreSQL.DATABASE_URL}}`.
+- `JWT_SECRET` y `MESSAGE_SECRET` deben ser diferentes.
+- `OPENAI_API_KEY` puede quedarse vacia.
+- No agregues `PORT`; Railway lo pone automaticamente.
+
+## 3. Generar dominio del backend
+
+En Railway:
 
 ```txt
-Settings > Environment Variables
+Backend service > Settings > Networking > Generate Domain
+```
+
+Te dara una URL parecida a:
+
+```txt
+https://nextfem-backend-production.up.railway.app
+```
+
+Prueba:
+
+```txt
+https://TU-BACKEND.up.railway.app/api/health
+```
+
+Debe responder que la API y la base funcionan.
+
+## 4. Variables del frontend en Vercel
+
+En Vercel entra a:
+
+```txt
+Project > Settings > Environment Variables
 ```
 
 Agrega:
 
 ```env
-VITE_API_URL=https://TU-BACKEND.onrender.com/api
-VITE_SOCKET_URL=https://TU-BACKEND.onrender.com
+VITE_API_URL=https://TU-BACKEND.up.railway.app/api
+VITE_SOCKET_URL=https://TU-BACKEND.up.railway.app
 ```
 
 Despues haz:
@@ -63,23 +90,7 @@ Despues haz:
 Deployments > Redeploy
 ```
 
-## 3. Variable del backend
+## 5. Si cambia tu URL de Vercel
 
-En Render, revisa que el backend tenga:
-
-```env
-FRONTEND_URL=https://next-fem-v2.vercel.app
-DATABASE_SSL=true
-```
-
-Si tu URL de Vercel cambia, cambia `FRONTEND_URL` en Render y reinicia el backend.
-
-## 4. OpenAI es opcional
-
-Si no tienes API key, deja esto vacio:
-
-```env
-OPENAI_API_KEY=
-```
-
-NextFem seguira funcionando con IA local.
+Actualiza `FRONTEND_URL` en Railway con la URL final de Vercel y redeploya el
+backend.

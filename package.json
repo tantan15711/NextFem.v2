@@ -1,0 +1,13 @@
+{
+  "name": "nextfem",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "railway:build": "cd backend && npm ci",
+    "railway:db": "cd backend && npm run db:setup",
+    "railway:start": "cd backend && npm start"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
