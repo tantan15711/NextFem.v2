@@ -24,6 +24,24 @@ https://TU-BACKEND.onrender.com/api/health
 
 Si responde `API y base de datos funcionando`, el backend ya esta listo.
 
+Si Render pide tarjeta, revisa que el servicio y la base esten en `Free`.
+El archivo `render.yaml` ya trae `plan: free`. Si aun asi no te deja crear la
+base gratis, crea la base en Neon o Supabase y usa Render solo para el backend.
+
+Variables para Render usando Neon o Supabase:
+
+```env
+NODE_ENV=production
+DATABASE_URL=pega_aqui_la_url_postgres_de_neon_o_supabase
+DATABASE_SSL=true
+JWT_SECRET=un_secreto_largo
+MESSAGE_SECRET=otro_secreto_largo
+FRONTEND_URL=https://next-fem-v2.vercel.app
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT=low
+```
+
 ## 2. Variables del frontend en Vercel
 
 En tu proyecto de Vercel entra a:

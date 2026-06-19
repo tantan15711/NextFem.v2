@@ -2,6 +2,7 @@ services:
   - type: web
     name: nextfem-backend
     runtime: node
+    plan: free
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm run deploy:start
@@ -30,5 +31,6 @@ services:
 
 databases:
   - name: nextfem-db
+    plan: free
     databaseName: marketplace_mujeres
     user: nextfem
