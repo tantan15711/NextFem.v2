@@ -65,7 +65,7 @@ subirlo rapido revisa [DEPLOY_NOW.md](DEPLOY_NOW.md).
 Configuracion recomendada de despliegue:
 
 - Backend y PostgreSQL en Railway usando [railway.json](railway.json).
-- Frontend en Vercel usando [vercel.json](vercel.json).
+- Frontend en Vercel usando [vercel.json](vercel.json). Guia: [VERCEL_SETUP.md](VERCEL_SETUP.md).
 
 Si PowerShell bloquea `npm`, usa `npm.cmd` en los mismos comandos, por ejemplo
 `npm.cmd run dev`.

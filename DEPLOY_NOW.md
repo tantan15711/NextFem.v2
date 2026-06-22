@@ -71,6 +71,8 @@ Debe responder que la API y la base funcionan.
 
 ## 4. Variables del frontend en Vercel
 
+La configuracion completa de Vercel esta en [VERCEL_SETUP.md](VERCEL_SETUP.md).
+
 En Vercel entra a:
 
 ```txt
