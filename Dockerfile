@@ -11,4 +11,4 @@ COPY bd ./bd
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["sh", "-c", "cd backend && npm start"]
+CMD ["sh", "-c", "cd backend && npm run db:setup && npm start"]
