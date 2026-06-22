@@ -2,6 +2,7 @@ const app = require("./app");
 const http = require("http");
 const { pool } = require("./config/db");
 const { initSocket } = require("./realtime/socket");
+const setupDatabase = require("./config/setupDatabase");
 
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
@@ -10,6 +11,11 @@ initSocket(server);
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Servidor backend escuchando en http://localhost:${PORT}`);
+
+  setupDatabase().catch((error) => {
+    console.error("No se pudo preparar la base de datos en segundo plano.");
+    console.error(error.message);
+  });
 });
 
 const closeServer = async () => {
