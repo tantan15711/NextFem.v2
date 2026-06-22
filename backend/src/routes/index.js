@@ -15,12 +15,22 @@ const router = express.Router();
 router.get(
   "/health",
   asyncHandler(async (req, res) => {
-    const db = await query("select now() as current_time");
+    try {
+      const db = await query("select now() as current_time");
 
-    res.json({
-      message: "API y base de datos funcionando",
-      databaseTime: db.rows[0].current_time
-    });
+      res.json({
+        message: "API y base de datos funcionando",
+        databaseTime: db.rows[0].current_time
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "API funcionando, pero no se pudo conectar con la base de datos.",
+        databaseConfigured: Boolean(process.env.DATABASE_URL),
+        databaseSsl: process.env.DATABASE_SSL || "false",
+        code: error.code || "UNKNOWN",
+        detail: error.message
+      });
+    }
   })
 );
 
