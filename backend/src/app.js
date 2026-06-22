@@ -32,6 +32,14 @@ app.use(
 );
 app.use(express.json({ limit: "40mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+
+app.get("/healthz", (req, res) => {
+  res.json({
+    ok: true,
+    service: "nextfem-backend"
+  });
+});
+
 app.use("/api/auth", rateLimit({ limit: 18, windowMs: 60_000 }));
 app.use("/api/uploads", rateLimit({ limit: 25, windowMs: 60_000 }));
 app.use("/api/conversations", rateLimit({ limit: 90, windowMs: 60_000 }));
