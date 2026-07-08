@@ -1,12 +1,15 @@
 <script setup>
+import { ref } from "vue";
 import { useRoute } from "vue-router";
 import {
   Bell,
   GraduationCap,
   LogOut,
+  Menu,
   MessageCircle,
   Plus,
-  UserRound
+  UserRound,
+  X
 } from "lucide-vue-next";
 import { useMarketplace } from "../composables/useMarketplace";
 
@@ -26,6 +29,22 @@ const {
   toggleNotificationsPanel
 } = useMarketplace();
 
+const menuOpen = ref(false);
+
+const closeMenu = () => {
+  menuOpen.value = false;
+};
+
+const navigate = async (view) => {
+  await goTo(view);
+  closeMenu();
+};
+
+const logout = () => {
+  requestLogout();
+  closeMenu();
+};
+
 const notificationTime = (notification) =>
   new Intl.DateTimeFormat("es-MX", {
     hour: "2-digit",
@@ -34,8 +53,19 @@ const notificationTime = (notification) =>
 </script>
 
 <template>
-  <header class="topbar">
-    <button class="brand" type="button" @click="goTo('home')">
+  <header class="topbar" :class="{ 'chat-topbar': route.name === 'chat' }">
+    <button
+      class="hamburger-button"
+      type="button"
+      :aria-expanded="menuOpen"
+      aria-label="Abrir menu"
+      @click="menuOpen = !menuOpen"
+    >
+      <X v-if="menuOpen" :size="22" />
+      <Menu v-else :size="22" />
+    </button>
+
+    <button class="brand" type="button" @click="navigate('home')">
       <span class="brand-mark logo-mark">
         <img src="/nextfem-logo.svg" alt="" />
       </span>
@@ -45,15 +75,15 @@ const notificationTime = (notification) =>
       </span>
     </button>
 
-    <nav class="nav-actions">
-      <button :class="{ active: route.name === 'home' }" type="button" @click="goTo('home')">
+    <nav class="nav-actions" :class="{ 'drawer-open': menuOpen }">
+      <button :class="{ active: route.name === 'home' }" type="button" @click="navigate('home')">
         Inicio
       </button>
-      <button :class="{ active: route.name === 'publish' }" type="button" @click="goTo('publish')">
+      <button :class="{ active: route.name === 'publish' }" type="button" @click="navigate('publish')">
         <Plus :size="18" />
         Publicar
       </button>
-      <button class="chat-nav-button" :class="{ active: route.name === 'chat' }" type="button" @click="goTo('chat')">
+      <button class="chat-nav-button" :class="{ active: route.name === 'chat' }" type="button" @click="navigate('chat')">
         <MessageCircle :size="18" />
         Chat
         <span v-if="unreadMessages > 0" class="nav-badge">{{ unreadMessages }}</span>
@@ -94,18 +124,18 @@ const notificationTime = (notification) =>
           <p v-if="notifications.length === 0">No tienes notificaciones nuevas.</p>
         </section>
       </div>
-      <button :class="{ active: route.name === 'courses' }" type="button" @click="goTo('courses')">
+      <button :class="{ active: route.name === 'courses' }" type="button" @click="navigate('courses')">
         <GraduationCap :size="18" />
         Aprender
       </button>
-      <button v-if="isLoggedIn" :class="{ active: route.name === 'profile' }" type="button" @click="goTo('profile')">
+      <button v-if="isLoggedIn" :class="{ active: route.name === 'profile' }" type="button" @click="navigate('profile')">
         <UserRound :size="18" />
         Perfil
       </button>
-      <button v-if="!isLoggedIn" class="primary" type="button" @click="goTo('auth')">
+      <button v-if="!isLoggedIn" class="primary" type="button" @click="navigate('auth')">
         Entrar
       </button>
-      <button v-else class="logout-button" title="Cerrar sesion" type="button" @click="requestLogout">
+      <button v-else class="logout-button" title="Cerrar sesion" type="button" @click="logout">
         <LogOut :size="18" />
         Salir
       </button>

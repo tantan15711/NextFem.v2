@@ -1,5 +1,5 @@
 <script setup>
-import { BriefcaseBusiness, Plus, Search, Sparkles, UserRound } from "lucide-vue-next";
+import { BriefcaseBusiness, Plus, Search, UserRound } from "lucide-vue-next";
 import ProductCard from "../components/ProductCard.vue";
 import { useMarketplace } from "../composables/useMarketplace";
 
@@ -16,8 +16,6 @@ const {
   searchTrends,
   selectedCategoryName,
   similarProducts,
-  smartSearchResult,
-  smartSearchWithAI,
   visibleProducts
 } = useMarketplace();
 </script>
@@ -77,16 +75,6 @@ const {
         placeholder="Ciudad"
       />
       <button class="primary" type="button" @click="loadProducts">Buscar</button>
-      <button class="ai-search-button" type="button" @click="smartSearchWithAI">
-        <Sparkles :size="18" />
-        Buscar con IA
-      </button>
-    </div>
-
-    <div v-if="smartSearchResult" class="smart-search-note">
-      <Sparkles :size="18" />
-      <span>{{ smartSearchResult.suggestion }}</span>
-      <small>{{ smartSearchResult.aiMode === "openai" ? "IA conectada" : "IA local" }}</small>
     </div>
 
     <div class="smart-filter-band">

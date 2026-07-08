@@ -5,12 +5,12 @@ import { useMarketplace } from "../composables/useMarketplace";
 const {
   categories,
   assistantResult,
-  clearProductImage,
   createProduct,
   generateProductWithAI,
-  onProductImageChange,
+  onProductMediaChange,
   productForm,
-  productImagePreview
+  productMediaPreviews,
+  removeProductMedia
 } = useMarketplace();
 </script>
 
@@ -123,31 +123,25 @@ const {
           />
         </label>
       </div>
-      <label>
-        Imagen por URL
-        <input
-          v-mobile-keyboard
-          v-model="productForm.imageUrl"
-          type="url"
-          inputmode="url"
-          enterkeyhint="done"
-          autocomplete="url"
-          autocapitalize="none"
-          spellcheck="false"
-          placeholder="https://..."
-        />
-      </label>
       <label class="file-picker">
-        <input accept="image/*" type="file" @change="onProductImageChange" />
+        <input accept="image/*,video/mp4,video/webm" multiple type="file" @change="onProductMediaChange" />
         <span class="file-picker-icon"><ImagePlus :size="22" /></span>
         <span>
-          <strong>Importar imagen desde galeria</strong>
-          <small>JPG, PNG o WEBP. Maximo 12 MB.</small>
+          <strong>Agregar fotos o video</strong>
+          <small>Hasta 8 archivos. JPG, PNG, WEBP, MP4 o WEBM.</small>
         </span>
       </label>
-      <div v-if="productImagePreview" class="image-preview">
-        <img :src="productImagePreview" alt="" />
-        <button type="button" @click="clearProductImage">Quitar imagen</button>
+      <div v-if="productMediaPreviews.length" class="media-preview-grid">
+        <article
+          v-for="(item, index) in productMediaPreviews"
+          :key="item.id"
+          class="media-preview-item"
+        >
+          <img v-if="item.mediaType === 'image'" :src="item.url" alt="" />
+          <video v-else :src="item.url" muted playsinline controls></video>
+          <span>{{ index === 0 ? "Portada" : item.name }}</span>
+          <button type="button" @click="removeProductMedia(index)">Quitar</button>
+        </article>
       </div>
       <button class="primary wide" type="submit">Guardar publicacion</button>
     </form>

@@ -28,8 +28,8 @@ const loading = ref(false);
 const notice = ref("");
 const error = ref("");
 const apiStatus = ref("checking");
-const productImageFile = ref(null);
-const productImagePreview = ref("");
+const productMediaFiles = ref([]);
+const productMediaPreviews = ref([]);
 const profileImageFile = ref(null);
 const profileImagePreview = ref("");
 const initialized = ref(false);
@@ -101,8 +101,7 @@ const productForm = reactive({
   description: "",
   categoryId: "",
   price: 0,
-  city: "",
-  imageUrl: ""
+  city: ""
 });
 
 const chatDraft = reactive({
@@ -496,6 +495,55 @@ const categoryInitial = (product) => {
   return (product.category_name || product.title || "N").slice(0, 1).toUpperCase();
 };
 
+const isVideoMedia = (media) => {
+  const mimeType = media?.mimeType || media?.mime_type || "";
+  const url = media?.url || "";
+
+  return (
+    media?.mediaType === "video" ||
+    media?.media_type === "video" ||
+    mimeType.startsWith("video/") ||
+    /\.(mp4|webm|mov)$/i.test(url)
+  );
+};
+
+const getProductMedia = (product) => {
+  const media = Array.isArray(product?.media) ? product.media : [];
+
+  if (media.length > 0) {
+    return media
+      .map((item, index) => ({
+        id: item.id || `${product.id}-${index}`,
+        url: item.url,
+        title: product.title,
+        mediaType: item.mediaType || item.media_type || (isVideoMedia(item) ? "video" : "image"),
+        mimeType: item.mimeType || item.mime_type || "",
+        fileName: item.fileName || item.file_name || "",
+        isPrimary: Boolean(item.isPrimary || item.is_primary)
+      }))
+      .filter((item) => item.url);
+  }
+
+  if (!product?.image_url) return [];
+
+  return [
+    {
+      id: `${product.id}-legacy`,
+      url: product.image_url,
+      title: product.title,
+      mediaType: product.primary_media_type || (isVideoMedia({ url: product.image_url }) ? "video" : "image"),
+      mimeType: product.primary_media_mime || "",
+      fileName: "",
+      isPrimary: true
+    }
+  ];
+};
+
+const getPrimaryMedia = (product) => {
+  const media = getProductMedia(product);
+  return media.find((item) => item.isPrimary) || media[0] || null;
+};
+
 const trackProductEvent = async (payload) => {
   try {
     await api.trackProductEvent(payload);
@@ -504,11 +552,13 @@ const trackProductEvent = async (payload) => {
   }
 };
 
-const openProductImage = async (product) => {
-  if (!product?.image_url) return;
+const openProductImage = async (product, startIndex = 0) => {
+  const media = getProductMedia(product);
+  if (media.length === 0) return;
 
   selectedImage.value = {
-    url: product.image_url,
+    items: media,
+    index: startIndex,
     title: product.title,
     seller: product.seller_name,
     price: money(product.price)
@@ -694,16 +744,68 @@ const uploadSelectedImage = async (file) => {
   return result.imageUrl;
 };
 
-const onProductImageChange = (event) => {
-  const file = event.target.files?.[0];
-  productImageFile.value = file || null;
-  productImagePreview.value = file ? URL.createObjectURL(file) : "";
+const uploadProductMediaFile = async (file) => {
+  const uploadFile = file.type.startsWith("image/") ? await compressImage(file) : file;
+  const result = await api.uploadFile(uploadFile);
+  markApiOnline();
+
+  return {
+    url: result.imageUrl,
+    mediaType: uploadFile.type.startsWith("video/") ? "video" : "image",
+    mimeType: uploadFile.type,
+    fileName: uploadFile.name
+  };
 };
 
-const clearProductImage = () => {
-  productImageFile.value = null;
-  productImagePreview.value = "";
+const clearProductMedia = () => {
+  productMediaPreviews.value.forEach((item) => URL.revokeObjectURL(item.url));
+  productMediaFiles.value = [];
+  productMediaPreviews.value = [];
 };
+
+const onProductMediaChange = (event) => {
+  const currentKeys = new Set(
+    productMediaFiles.value.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
+  );
+  const incomingFiles = Array.from(event.target.files || [])
+    .filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"))
+    .filter((file) => !currentKeys.has(`${file.name}-${file.size}-${file.lastModified}`));
+  const availableSlots = Math.max(0, 8 - productMediaFiles.value.length);
+  const files = incomingFiles.slice(0, availableSlots);
+
+  if (files.length === 0) {
+    event.target.value = "";
+    return;
+  }
+
+  const startIndex = productMediaFiles.value.length;
+  productMediaFiles.value = [...productMediaFiles.value, ...files];
+  productMediaPreviews.value = [
+    ...productMediaPreviews.value,
+    ...files.map((file, index) => ({
+    id: `${file.name}-${file.lastModified}-${startIndex + index}`,
+    name: file.name,
+    type: file.type,
+    mediaType: file.type.startsWith("video/") ? "video" : "image",
+    url: URL.createObjectURL(file)
+    }))
+  ];
+  event.target.value = "";
+};
+
+const removeProductMedia = (index) => {
+  const preview = productMediaPreviews.value[index];
+
+  if (preview?.url) {
+    URL.revokeObjectURL(preview.url);
+  }
+
+  productMediaFiles.value = productMediaFiles.value.filter((_, itemIndex) => itemIndex !== index);
+  productMediaPreviews.value = productMediaPreviews.value.filter((_, itemIndex) => itemIndex !== index);
+};
+
+const onProductImageChange = onProductMediaChange;
+const clearProductImage = clearProductMedia;
 
 const onProfileImageChange = (event) => {
   const file = event.target.files?.[0];
@@ -986,6 +1088,7 @@ const confirmLogout = async () => {
   quickReplies.value = [];
   safetyNotice.value = "";
   conversationSummary.value = null;
+  clearProductMedia();
   clearChatMedia();
   clearLocationDraft();
   clearUndoToast();
@@ -1024,10 +1127,15 @@ const createProduct = async () => {
   loading.value = true;
 
   try {
-    let imageUrl = productForm.imageUrl;
+    const media = [];
 
-    if (productImageFile.value) {
-      imageUrl = await uploadSelectedImage(productImageFile.value);
+    for (const [index, file] of productMediaFiles.value.entries()) {
+      const uploaded = await uploadProductMediaFile(file);
+      media.push({
+        ...uploaded,
+        sortOrder: index,
+        isPrimary: index === 0
+      });
     }
 
     await api.createProduct({
@@ -1037,7 +1145,7 @@ const createProduct = async () => {
       price: Number(productForm.price || 0),
       isFree: Number(productForm.price || 0) === 0,
       city: productForm.city,
-      imageUrl
+      media
     });
 
     productForm.title = "";
@@ -1045,8 +1153,7 @@ const createProduct = async () => {
     productForm.categoryId = "";
     productForm.price = 0;
     productForm.city = user.value?.city || "";
-    productForm.imageUrl = "";
-    clearProductImage();
+    clearProductMedia();
 
     setNotice("Publicacion creada correctamente.");
     await loadProducts();
@@ -1091,6 +1198,7 @@ const saveReview = async () => {
     setNotice(result.message);
     await loadSellerReviews(reviewForm.sellerId);
     await loadMetrics();
+    await loadProducts();
   } catch (err) {
     handleRequestError(err);
   }
@@ -1669,8 +1777,8 @@ export const useMarketplace = () => ({
   notice,
   error,
   apiStatus,
-  productImageFile,
-  productImagePreview,
+  productMediaFiles,
+  productMediaPreviews,
   profileImageFile,
   profileImagePreview,
   showLogoutConfirm,
@@ -1729,8 +1837,14 @@ export const useMarketplace = () => ({
   confirmLogout,
   money,
   categoryInitial,
+  getProductMedia,
+  getPrimaryMedia,
+  isVideoMedia,
   onProductImageChange,
   clearProductImage,
+  onProductMediaChange,
+  clearProductMedia,
+  removeProductMedia,
   onProfileImageChange,
   loadProducts,
   loadCategories,

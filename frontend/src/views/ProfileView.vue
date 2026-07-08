@@ -14,8 +14,6 @@ const {
   onProfileImageChange,
   profileForm,
   profileImagePreview,
-  reviewForm,
-  saveReview,
   saveProfile,
   sellerReviews,
   user
@@ -188,43 +186,12 @@ const {
       </div>
       <article v-for="review in sellerReviews" :key="review.id" class="own-product review-item">
         <div>
-          <strong>{{ "★".repeat(review.rating) }}</strong>
+          <strong>{{ Number(review.rating).toFixed(1) }} estrellas</strong>
           <span>{{ review.comment || "Sin comentario" }}</span>
         </div>
         <small>{{ review.reviewer_name }}</small>
       </article>
     </section>
 
-    <section class="my-products">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Apoyo comunitario</p>
-          <h2>Dejar reseña a una vendedora</h2>
-        </div>
-      </div>
-      <form class="review-form" @submit.prevent="saveReview">
-        <input
-          v-mobile-keyboard
-          v-model="reviewForm.sellerId"
-          type="number"
-          inputmode="numeric"
-          enterkeyhint="next"
-          placeholder="ID de vendedora"
-        />
-        <select v-model="reviewForm.rating">
-          <option v-for="rating in 5" :key="rating" :value="rating">{{ rating }} estrellas</option>
-        </select>
-        <input
-          v-mobile-keyboard
-          v-model="reviewForm.comment"
-          type="text"
-          inputmode="text"
-          enterkeyhint="done"
-          autocomplete="off"
-          placeholder="Comentario breve"
-        />
-        <button class="primary" type="submit">Guardar reseña</button>
-      </form>
-    </section>
   </section>
 </template>

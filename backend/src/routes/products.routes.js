@@ -1,11 +1,66 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 
-const { query } = require("../config/db");
+const { pool, query } = require("../config/db");
 const asyncHandler = require("../middlewares/asyncHandler");
 const auth = require("../middlewares/auth");
 
 const router = express.Router();
+
+const productMediaSelect = `
+  coalesce(media_items.media, '[]'::json) as media,
+  media_items.primary_media_mime,
+  media_items.primary_media_type
+`;
+
+const productMediaJoin = `
+  left join lateral (
+    select
+      json_agg(
+        json_build_object(
+          'id', pm.id,
+          'url', pm.url,
+          'mediaType', pm.media_type,
+          'mimeType', pm.mime_type,
+          'fileName', pm.file_name,
+          'sortOrder', pm.sort_order,
+          'isPrimary', pm.is_primary
+        )
+        order by pm.sort_order, pm.id
+      ) as media,
+      (array_agg(pm.mime_type order by pm.is_primary desc, pm.sort_order, pm.id))[1] as primary_media_mime,
+      (array_agg(pm.media_type order by pm.is_primary desc, pm.sort_order, pm.id))[1] as primary_media_type
+    from product_media pm
+    where pm.product_id = p.id
+  ) media_items on true
+`;
+
+const normalizeProductMedia = (media = []) => {
+  if (!Array.isArray(media)) return [];
+
+  return media
+    .slice(0, 8)
+    .map((item, index) => {
+      const url = String(item?.url || "").trim();
+      const mimeType = String(item?.mimeType || item?.mime_type || "").trim();
+      const fileName = String(item?.fileName || item?.file_name || "").trim();
+      const requestedType = String(item?.mediaType || item?.media_type || "").toLowerCase();
+      const mediaType =
+        requestedType === "video" || mimeType.startsWith("video/") ? "video" : "image";
+
+      return {
+        url,
+        mediaType,
+        mimeType,
+        fileName,
+        sortOrder: Number.isInteger(Number(item?.sortOrder))
+          ? Number(item.sortOrder)
+          : index,
+        isPrimary: Boolean(item?.isPrimary) || index === 0
+      };
+    })
+    .filter((item) => item.url && ["image", "video"].includes(item.mediaType));
+};
 
 const getOptionalUserId = (req) => {
   const header = req.headers.authorization || "";
@@ -90,6 +145,7 @@ router.get(
          p.price,
          p.is_free,
          p.image_url,
+         ${productMediaSelect},
          p.city,
          p.status,
          p.created_at,
@@ -105,6 +161,7 @@ router.get(
        from products p
        join users u on u.id = p.user_id
        left join categories c on c.id = p.category_id
+       ${productMediaJoin}
        left join (
          select product_id, count(*) as favorite_count
          from product_favorites
@@ -194,10 +251,12 @@ router.get(
     const result = await query(
       `select
          p.*,
+         ${productMediaSelect},
          c.name as category_name,
          c.slug as category_slug
        from products p
        left join categories c on c.id = p.category_id
+       ${productMediaJoin}
        where p.user_id = $1
        order by p.created_at desc`,
       [req.user.id]
@@ -229,6 +288,7 @@ router.get(
          p.price,
          p.is_free,
          p.image_url,
+         ${productMediaSelect},
          p.city,
          p.status,
          p.created_at,
@@ -239,6 +299,7 @@ router.get(
        from products p
        join users u on u.id = p.user_id
        left join categories c on c.id = p.category_id
+       ${productMediaJoin}
        where p.id <> $1
          and p.status = 'active'
          and (
@@ -266,6 +327,7 @@ router.get(
     const result = await query(
       `select
          p.*,
+         ${productMediaSelect},
          c.name as category_name,
          c.slug as category_slug,
          u.id as seller_id,
@@ -275,6 +337,7 @@ router.get(
        from products p
        join users u on u.id = p.user_id
        left join categories c on c.id = p.category_id
+       ${productMediaJoin}
        where p.id = $1`,
       [req.params.id]
     );
@@ -298,7 +361,8 @@ router.post(
       price = 0,
       isFree,
       imageUrl,
-      city
+      city,
+      media = []
     } = req.body;
 
     if (!title || !description) {
@@ -307,27 +371,64 @@ router.post(
       });
     }
 
-    const result = await query(
-      `insert into products
-        (user_id, category_id, title, description, price, is_free, image_url, city)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
-       returning *`,
-      [
-        req.user.id,
-        categoryId || null,
-        title,
-        description,
-        price,
-        typeof isFree === "boolean" ? isFree : Number(price || 0) === 0,
-        imageUrl || null,
-        city || null
-      ]
-    );
+    const mediaItems = normalizeProductMedia(media);
+    const primaryUrl =
+      imageUrl ||
+      mediaItems.find((item) => item.mediaType === "image")?.url ||
+      null;
+    const client = await pool.connect();
 
-    res.status(201).json({
-      message: "Publicacion creada correctamente.",
-      product: result.rows[0]
-    });
+    try {
+      await client.query("begin");
+
+      const result = await client.query(
+        `insert into products
+          (user_id, category_id, title, description, price, is_free, image_url, city)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
+         returning *`,
+        [
+          req.user.id,
+          categoryId || null,
+          title,
+          description,
+          price,
+          typeof isFree === "boolean" ? isFree : Number(price || 0) === 0,
+          primaryUrl,
+          city || null
+        ]
+      );
+
+      const product = result.rows[0];
+
+      for (const [index, item] of mediaItems.entries()) {
+        await client.query(
+          `insert into product_media
+            (product_id, url, media_type, mime_type, file_name, sort_order, is_primary)
+           values ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            product.id,
+            item.url,
+            item.mediaType,
+            item.mimeType || null,
+            item.fileName || null,
+            item.sortOrder,
+            item.isPrimary || index === 0
+          ]
+        );
+      }
+
+      await client.query("commit");
+
+      res.status(201).json({
+        message: "Publicacion creada correctamente.",
+        product
+      });
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
   })
 );
 

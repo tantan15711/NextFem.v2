@@ -228,8 +228,13 @@ router.post(
     const { rating, comment = "", productId = null } = req.body;
     const normalizedRating = Number(rating);
 
-    if (!Number.isInteger(normalizedRating) || normalizedRating < 1 || normalizedRating > 5) {
-      return res.status(400).json({ message: "La calificacion debe ser de 1 a 5." });
+    if (
+      !Number.isFinite(normalizedRating) ||
+      normalizedRating < 0.5 ||
+      normalizedRating > 5 ||
+      normalizedRating * 2 !== Math.round(normalizedRating * 2)
+    ) {
+      return res.status(400).json({ message: "La calificacion debe ser de 0.5 a 5." });
     }
 
     if (String(req.user.id) === String(req.params.sellerId)) {
@@ -239,8 +244,6 @@ router.post(
     const result = await query(
       `insert into seller_reviews (reviewer_id, seller_id, product_id, rating, comment)
        values ($1, $2, $3, $4, $5)
-       on conflict (reviewer_id, seller_id, product_id)
-       do update set rating = excluded.rating, comment = excluded.comment, updated_at = now()
        returning *`,
       [req.user.id, req.params.sellerId, productId, normalizedRating, comment]
     );
