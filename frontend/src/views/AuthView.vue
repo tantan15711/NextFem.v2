@@ -16,7 +16,7 @@ const {
   <section class="form-band auth-band">
     <div class="form-copy">
       <p class="eyebrow">{{ authMode === "register" ? "Crear cuenta" : "Bienvenida" }}</p>
-      <h1>{{ authMode === "register" ? "Tu perfil emprendedor empieza aqui." : "Vuelve a tu espacio." }}</h1>
+      <h1>{{ authMode === "register" ? "Tu perfil emprendedor empieza aquí." : "Vuelve a tu espacio." }}</h1>
       <p>
         Al entrar, tus publicaciones, perfil y conversaciones se mantienen ligados
         a tu cuenta.
@@ -83,7 +83,7 @@ const {
         />
       </label>
       <label>
-        Contrasena
+        Contraseña
         <input
           v-mobile-keyboard
           v-model="authForm.password"
@@ -95,7 +95,7 @@ const {
         />
       </label>
       <label v-if="authMode === 'register'">
-        Telefono
+        Teléfono
         <input
           v-mobile-keyboard
           v-model="authForm.phone"

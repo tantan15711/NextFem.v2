@@ -1,29 +1,21 @@
-# Frontend NextFem
+# NextFem Frontend
 
-Aplicacion Vue conectada al backend Express.
+Aplicacion Vue conectada directamente a Supabase.
 
-## Instalar
+## Comandos
 
 ```bash
 npm install
-```
-
-## Configurar
-
-Copia `.env.example` a `.env`.
-
-```bash
-copy .env.example .env
-```
-
-## Ejecutar
-
-```bash
 npm run dev
+npm run build
 ```
 
-Abre:
+## Variables
 
-```txt
-http://localhost:5173
+Crea `.env` con:
+
+```env
+VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
+VITE_SUPABASE_ANON_KEY=TU_ANON_KEY_DE_SUPABASE
 ```
+

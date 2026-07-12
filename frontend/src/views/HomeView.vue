@@ -1,5 +1,7 @@
 <script setup>
+import { ref } from "vue";
 import { BriefcaseBusiness, Plus, Search, UserRound } from "lucide-vue-next";
+import ProductDetailModal from "../components/ProductDetailModal.vue";
 import ProductCard from "../components/ProductCard.vue";
 import { useMarketplace } from "../composables/useMarketplace";
 
@@ -11,13 +13,17 @@ const {
   loadProducts,
   loading,
   openContact,
+  followedProducts,
   products,
   applySearchTrend,
+  recentProducts,
   searchTrends,
   selectedCategoryName,
   similarProducts,
   visibleProducts
 } = useMarketplace();
+
+const selectedProduct = ref(null);
 </script>
 
 <template>
@@ -27,7 +33,7 @@ const {
         <p class="eyebrow">Sin comisiones de plataforma</p>
         <h1>Un espacio para vender, conectar y crecer con otras mujeres.</h1>
         <p>
-          Publica productos, servicios o apoyos comunitarios. La conversacion
+          Publica productos, servicios o apoyos comunitarios. La conversación
           sucede directo entre usuarias y tu perfil queda guardado.
         </p>
         <div class="intro-actions">
@@ -166,17 +172,52 @@ const {
 
         <div v-if="loading" class="empty-state">Cargando publicaciones...</div>
         <div v-else-if="visibleProducts.length === 0" class="empty-state">
-          Aun no hay publicaciones para esta busqueda.
+          Aún no hay publicaciones para esta búsqueda.
         </div>
         <div v-else class="product-grid">
           <ProductCard
             v-for="product in visibleProducts"
             :key="product.id"
             :product="product"
+            @open-detail="selectedProduct = product"
           />
         </div>
       </section>
     </div>
+
+    <section v-if="recentProducts.length" class="featured-strip">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Recién publicados</p>
+          <h2>Lo más nuevo en NextFem</h2>
+        </div>
+      </div>
+      <div class="horizontal-products">
+        <ProductCard
+          v-for="product in recentProducts"
+          :key="`recent-${product.id}`"
+          :product="product"
+          @open-detail="selectedProduct = product"
+        />
+      </div>
+    </section>
+
+    <section v-if="followedProducts.length" class="featured-strip">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Novedades</p>
+          <h2>Publicaciones de vendedoras que sigues</h2>
+        </div>
+      </div>
+      <div class="horizontal-products">
+        <ProductCard
+          v-for="product in followedProducts"
+          :key="`followed-${product.id}`"
+          :product="product"
+          @open-detail="selectedProduct = product"
+        />
+      </div>
+    </section>
 
     <section v-if="similarProducts.length" class="similar-band">
       <div class="section-heading">
@@ -194,5 +235,7 @@ const {
         </article>
       </div>
     </section>
+
+    <ProductDetailModal :product="selectedProduct" @close="selectedProduct = null" />
   </section>
 </template>

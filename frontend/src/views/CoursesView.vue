@@ -2,7 +2,7 @@
 import { ExternalLink } from "lucide-vue-next";
 import { useMarketplace } from "../composables/useMarketplace";
 
-const { courses } = useMarketplace();
+const { completedCourseUrls, courses, isLoggedIn, markCourseCompleted } = useMarketplace();
 </script>
 
 <template>
@@ -24,6 +24,15 @@ const { courses } = useMarketplace();
           Ver recurso
           <ExternalLink :size="17" />
         </a>
+        <button
+          v-if="isLoggedIn"
+          class="course-complete-button"
+          type="button"
+          :disabled="completedCourseUrls.includes(course.url)"
+          @click="markCourseCompleted(course)"
+        >
+          {{ completedCourseUrls.includes(course.url) ? "Completado" : "Marcar como completado" }}
+        </button>
       </article>
     </div>
   </section>

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
-import { Flag, Heart, MessageCircle, Star, Store } from "lucide-vue-next";
+import { Flag, Heart, MessageCircle, Share2, Star, Store, UserPlus } from "lucide-vue-next";
 import { useMarketplace } from "../composables/useMarketplace";
 
 const props = defineProps({
@@ -10,9 +10,12 @@ const props = defineProps({
   }
 });
 
+const emit = defineEmits(["open-detail"]);
+
 const {
   categoryInitial,
   favoriteIds,
+  followedSellerIds,
   getPrimaryMedia,
   getProductMedia,
   isVideoMedia,
@@ -23,7 +26,9 @@ const {
   reportProduct,
   reviewForm,
   saveReview,
+  shareProduct,
   showSimilar,
+  toggleFollowSeller,
   toggleFavorite,
   user
 } = useMarketplace();
@@ -37,6 +42,12 @@ const ratingOptions = Array.from({ length: 10 }, (_, index) => (index + 1) / 2);
 
 const canReview = computed(
   () => isLoggedIn.value && String(user.value?.id) !== String(props.product.seller_id)
+);
+const canFollow = computed(
+  () => isLoggedIn.value && String(user.value?.id) !== String(props.product.seller_id)
+);
+const isFollowing = computed(() =>
+  followedSellerIds.value.includes(String(props.product.seller_id))
 );
 
 const submitReview = async () => {
@@ -52,13 +63,13 @@ const submitReview = async () => {
 </script>
 
 <template>
-  <article class="product-card">
+  <article class="product-card" role="button" tabindex="0" @click="emit('open-detail', product)" @keydown.enter="emit('open-detail', product)">
     <button
       class="product-media"
       type="button"
       :disabled="!getPrimaryMedia(product)"
-      title="Abrir galeria"
-      @click="openProductImage(product)"
+      title="Ver producto"
+      @click.stop="emit('open-detail', product)"
     >
       <video
         v-if="getPrimaryMedia(product) && isVideoMedia(getPrimaryMedia(product))"
@@ -86,7 +97,7 @@ const submitReview = async () => {
           :class="{ active: favoriteIds.includes(String(product.id)) }"
           type="button"
           title="Guardar producto"
-          @click="toggleFavorite(product)"
+          @click.stop="toggleFavorite(product)"
         >
           <Heart :size="17" />
         </button>
@@ -108,26 +119,37 @@ const submitReview = async () => {
         <Store :size="16" />
         {{ product.seller_name }}
       </div>
+      <div v-if="product.published_at" class="published-line">
+        Publicado {{ new Date(product.published_at).toLocaleDateString("es-MX") }}
+      </div>
     </div>
 
     <footer class="card-actions">
-      <button type="button" @click="showSimilar(product)">Similares</button>
-      <button class="primary subtle" type="button" @click="openContact(product)">
+      <button type="button" @click.stop="showSimilar(product)">Similares</button>
+      <button class="primary subtle" type="button" @click.stop="openContact(product)">
         <MessageCircle :size="16" />
         Preguntar
       </button>
-      <button type="button" @click="reportProduct(product)">
+      <button type="button" @click.stop="reportProduct(product)">
         <Flag :size="16" />
         Reportar
       </button>
-      <button v-if="canReview" type="button" @click="reviewOpen = !reviewOpen">
+      <button type="button" @click.stop="shareProduct(product)">
+        <Share2 :size="16" />
+        Compartir
+      </button>
+      <button v-if="canFollow" type="button" @click.stop="toggleFollowSeller(product.seller_id)">
+        <UserPlus :size="16" />
+        {{ isFollowing ? "Siguiendo" : "Seguir" }}
+      </button>
+      <button v-if="canReview" type="button" @click.stop="reviewOpen = !reviewOpen">
         <Star :size="16" />
         Reseñar
       </button>
     </footer>
 
-    <form v-if="reviewOpen" class="inline-review-form" @submit.prevent="submitReview">
-      <select v-model="reviewDraft.rating" aria-label="Calificacion">
+    <form v-if="reviewOpen" class="inline-review-form" @click.stop @submit.prevent="submitReview">
+      <select v-model="reviewDraft.rating" aria-label="Calificación">
         <option v-for="rating in ratingOptions" :key="rating" :value="rating">
           {{ rating }} estrellas
         </option>

@@ -1,12 +1,12 @@
 import { computed, reactive, ref } from "vue";
-import { io } from "socket.io-client";
-import { api, SOCKET_URL, storage } from "../services/api";
+import { api, storage } from "../services/api";
 
 const routeByView = {
   home: "home",
   auth: "auth",
   publish: "publish",
   profile: "profile",
+  sellerProfile: "seller-profile",
   chat: "chat",
   courses: "courses"
 };
@@ -19,7 +19,7 @@ let routerInstance = null;
 let refreshTimer = null;
 let undoTimer = null;
 let typingTimer = null;
-let socket = null;
+let realtimeUnsubscribe = null;
 let joinedConversationId = null;
 
 const activeView = ref("home");
@@ -44,6 +44,7 @@ const conversations = ref([]);
 const messages = ref([]);
 const selectedConversation = ref(null);
 const contactProduct = ref(null);
+const contactSeller = ref(null);
 const notifications = ref([]);
 const notificationPanelOpen = ref(false);
 const blockedUsers = ref([]);
@@ -52,6 +53,9 @@ const favoriteIds = ref([]);
 const favoriteProducts = ref([]);
 const sellerReviews = ref([]);
 const metrics = ref(null);
+const followedSellerIds = ref([]);
+const followedProducts = ref([]);
+const completedCourseUrls = ref([]);
 const assistantResult = ref(null);
 const smartSearchResult = ref(null);
 const conversationSummary = ref(null);
@@ -146,6 +150,16 @@ const courses = [
 
 const isLoggedIn = computed(() => Boolean(user.value && storage.getToken()));
 const visibleProducts = computed(() => products.value);
+const recentProducts = computed(() =>
+  [...products.value]
+    .sort(
+      (a, b) =>
+        new Date(b.published_at || b.created_at || 0) -
+        new Date(a.published_at || a.created_at || 0)
+    )
+    .slice(0, 6)
+);
+const sellerBadges = computed(() => metrics.value?.badges || []);
 const selectedCategoryName = computed(() => {
   const found = categories.value.find((category) => category.slug === filters.category);
   return found ? found.name : "Todas";
@@ -274,7 +288,7 @@ const navigateTo = async (view) => {
 const handleRequestError = (err) => {
   const message = err?.message || "No se pudo completar la solicitud.";
 
-  if (message.includes("VITE_API_URL") || message.includes("backend de produccion")) {
+  if (message.includes("Supabase") || message.includes("VITE_SUPABASE")) {
     apiStatus.value = "offline";
     setError(message);
     return;
@@ -283,7 +297,7 @@ const handleRequestError = (err) => {
   if (
     message.includes("conectar") ||
     message.includes("conexion") ||
-    message.includes("localhost:3000") ||
+    message.includes("supabase") ||
     message.includes("tardo")
   ) {
     apiStatus.value = "offline";
@@ -292,7 +306,7 @@ const handleRequestError = (err) => {
       return;
     }
 
-    setError("No se pudo completar la accion. Intenta de nuevo en unos segundos.");
+    setError("No se pudo completar la acción. Intenta de nuevo en unos segundos.");
     return;
   }
 
@@ -315,149 +329,47 @@ const checkApi = async () => {
 };
 
 const connectSocket = () => {
-  if (!isLoggedIn.value || socket?.connected) return;
+  if (!isLoggedIn.value || realtimeUnsubscribe) return;
 
-  socket?.disconnect();
-  socket = io(SOCKET_URL, {
-    auth: {
-      token: storage.getToken()
-    },
-    transports: ["websocket", "polling"]
-  });
+  realtimeUnsubscribe = api.subscribeRealtime(user.value.id, {
+    onMessage: async (message) => {
+      const isOpen =
+        selectedConversation.value &&
+        String(selectedConversation.value.id) === String(message.conversation_id);
 
-  socket.on("connect", () => {
-    if (selectedConversation.value) {
-      socket.emit("conversation:join", selectedConversation.value.id);
-      joinedConversationId = selectedConversation.value.id;
-    }
-  });
-
-  socket.on("message:new", async ({ conversationId, message }) => {
-    const isOpen =
-      selectedConversation.value &&
-      String(selectedConversation.value.id) === String(conversationId);
-
-    if (isOpen) {
-      const exists = messages.value.some(
-        (item) => String(item.id) === String(message.id)
-      );
-
-      if (!exists) {
-        messages.value = [...messages.value, message];
-      }
-
-      await selectConversation(selectedConversation.value);
-      return;
-    }
-
-    await loadConversations(false);
-  });
-
-  socket.on("message:deleted", async ({ conversationId, messageId, scope, deletedForUserId }) => {
-    const isCurrentUserDelete =
-      scope === "me" && String(deletedForUserId) === String(user.value?.id);
-    const isOpen =
-      selectedConversation.value &&
-      String(selectedConversation.value.id) === String(conversationId);
-
-    if (isOpen) {
-      if (scope === "everyone") {
-        messages.value = messages.value.map((message) =>
-          String(message.id) === String(messageId)
-            ? {
-                ...message,
-                body: "Mensaje eliminado para todos",
-                media_url: null,
-                media_mime: null,
-                media_name: null,
-                is_deleted_for_everyone: true,
-                deleted_for_everyone_at:
-                  message.deleted_for_everyone_at || new Date().toISOString()
-              }
-            : message
-        );
-      } else if (isCurrentUserDelete) {
-        messages.value = messages.value.filter(
-          (message) => String(message.id) !== String(messageId)
-        );
-      }
-    }
-
-    await loadConversations(false);
-  });
-
-  socket.on("message:restored", async ({ conversationId }) => {
-    const isOpen =
-      selectedConversation.value &&
-      String(selectedConversation.value.id) === String(conversationId);
-
-    if (isOpen) {
-      messages.value = await api.messages(conversationId);
-    }
-
-    await loadConversations(false);
-  });
-
-  socket.on("message:read", ({ conversationId, readMessageIds }) => {
-    if (
-      !selectedConversation.value ||
-      String(selectedConversation.value.id) !== String(conversationId)
-    ) {
-      return;
-    }
-
-    const readIds = new Set(readMessageIds.map(String));
-    messages.value = messages.value.map((message) =>
-      readIds.has(String(message.id))
-        ? { ...message, read_at: message.read_at || new Date().toISOString() }
-        : message
-    );
-  });
-
-  socket.on("conversation:update", async () => {
-    await loadConversations(false);
-  });
-
-  socket.on("message:notify", async () => {
-    await loadConversations(false);
-  });
-
-  socket.on("conversation:typing", ({ conversationId, userId, userName, isTyping }) => {
-    if (String(userId) === String(user.value?.id)) return;
-
-    const current = typingUsers.value[conversationId] || {};
-
-    if (isTyping) {
-      typingUsers.value = {
-        ...typingUsers.value,
-        [conversationId]: {
-          ...current,
-          [userId]: userName || "La otra usuaria"
+      if (isOpen) {
+        const exists = messages.value.some((item) => String(item.id) === String(message.id));
+        if (!exists) {
+          messages.value = [...messages.value, message];
         }
-      };
-      return;
-    }
+      }
 
-    const next = { ...current };
-    delete next[userId];
-    typingUsers.value = {
-      ...typingUsers.value,
-      [conversationId]: next
-    };
-  });
+      await loadConversations(false);
+    },
+    onMessageUpdate: async (message) => {
+      const isOpen =
+        selectedConversation.value &&
+        String(selectedConversation.value.id) === String(message.conversation_id);
 
-  socket.on("notification:new", async ({ notifications: incoming = [] }) => {
-    notifications.value = [...incoming, ...notifications.value]
-      .filter(
-        (notification, index, list) =>
-          list.findIndex((item) => String(item.id) === String(notification.id)) === index
-      )
-      .slice(0, 30);
+      if (isOpen) {
+        messages.value = messages.value.map((item) =>
+          String(item.id) === String(message.id) ? message : item
+        );
+      }
 
-    const latest = incoming[0];
-
-    if (latest) {
-      showBrowserNotification(latest.title, latest.body);
+      await loadConversations(false);
+    },
+    onNotification: async (notification) => {
+      notifications.value = [notification, ...notifications.value]
+        .filter(
+          (item, index, list) =>
+            list.findIndex((candidate) => String(candidate.id) === String(item.id)) === index
+        )
+        .slice(0, 50);
+      showBrowserNotification(notification.title, notification.body);
+    },
+    onConversationChange: async () => {
+      await loadConversations(false);
     }
   });
 };
@@ -468,11 +380,12 @@ const disconnectSocket = () => {
     typingTimer = null;
   }
 
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-    joinedConversationId = null;
+  if (realtimeUnsubscribe) {
+    realtimeUnsubscribe();
+    realtimeUnsubscribe = null;
   }
+
+  joinedConversationId = null;
 };
 
 const money = (value) => {
@@ -648,8 +561,8 @@ const clearChatMedia = () => {
 
 const buildLocationLabel = (lat, lng, live) => {
   return live
-    ? `Ubicacion en tiempo real: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    : `Ubicacion fija: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    ? `Ubicación en tiempo real: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    : `Ubicación fija: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 };
 
 const prepareLocationMessage = async (live = false) => {
@@ -676,7 +589,7 @@ const prepareLocationMessage = async (live = false) => {
       chatDraft.message = live
         ? "Te comparto mi ubicacion en tiempo real por 30 minutos."
         : "Te comparto mi ubicacion fija.";
-      setNotice(live ? "Ubicacion en tiempo real lista para enviar." : "Ubicacion fija lista para enviar.");
+      setNotice(live ? "Ubicación en tiempo real lista para enviar." : "Ubicación fija lista para enviar.");
     },
     () => {
       setError("No se pudo obtener tu ubicacion. Revisa permisos del navegador.");
@@ -698,7 +611,7 @@ const startAudioRecording = async () => {
 
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
     audioRecorderSupported.value = false;
-    setError("Tu navegador no permite grabar audio aqui.");
+    setError("Tu navegador no permite grabar audio aquí.");
     return;
   }
 
@@ -901,6 +814,82 @@ const loadFavorites = async () => {
   favoriteProducts.value = await api.favorites();
 };
 
+const loadFollowedSellers = async () => {
+  if (!isLoggedIn.value) {
+    followedSellerIds.value = [];
+    followedProducts.value = [];
+    return;
+  }
+
+  followedSellerIds.value = (await api.followedSellerIds()).map(String);
+  followedProducts.value = await api.feedFromFollowedSellers();
+};
+
+const toggleFollowSeller = async (sellerId) => {
+  if (!requireLogin() || !sellerId || String(sellerId) === String(user.value?.id)) return;
+
+  const sellerKey = String(sellerId);
+
+  try {
+    if (followedSellerIds.value.includes(sellerKey)) {
+      await api.unfollowSeller(sellerId);
+      followedSellerIds.value = followedSellerIds.value.filter((id) => id !== sellerKey);
+      setNotice("Dejaste de seguir a esta vendedora.");
+    } else {
+      await api.followSeller(sellerId);
+      followedSellerIds.value = [...followedSellerIds.value, sellerKey];
+      setNotice("Ahora veras sus novedades.");
+    }
+
+    await loadFollowedSellers();
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
+const shareProduct = async (product) => {
+  const url = `${window.location.origin}/?producto=${product.id}`;
+  const text = `${product.title} en NextFem`;
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: text, text, url });
+      return;
+    }
+
+    await navigator.clipboard.writeText(url);
+    setNotice("Enlace copiado para compartir.");
+  } catch (err) {
+    setError("No se pudo compartir el enlace.");
+  }
+};
+
+const loadCompletedCourses = async () => {
+  if (!isLoggedIn.value) {
+    completedCourseUrls.value = [];
+    return;
+  }
+
+  completedCourseUrls.value = await api.completedCourses();
+};
+
+const markCourseCompleted = async (course) => {
+  if (!requireLogin()) return;
+
+  try {
+    const result = await api.completeCourse(course.url, courses.length);
+    completedCourseUrls.value = result.completed;
+    await loadMetrics();
+    setNotice(
+      result.completedAll
+        ? "Cursos completados. Ganaste una insignia para tu perfil."
+        : "Curso marcado como completado."
+    );
+  } catch (err) {
+    handleRequestError(err);
+  }
+};
+
 const toggleFavorite = async (product) => {
   if (!requireLogin()) return;
 
@@ -938,7 +927,7 @@ const reportProduct = async (product) => {
       reason: "revision",
       details
     });
-    setNotice("Gracias. Revisaremos esta publicacion para cuidar la comunidad.");
+    setNotice("Gracias. Revisaremos esta publicación para cuidar la comunidad.");
   } catch (err) {
     handleRequestError(err);
   }
@@ -1001,8 +990,13 @@ const goTo = async (view) => {
   if (view === "profile") {
     await loadMyProducts();
     await loadFavorites();
+    await loadFollowedSellers();
     await loadMetrics();
     await loadSellerReviews();
+  }
+
+  if (view === "courses") {
+    await loadCompletedCourses();
   }
 
   if (view === "chat") {
@@ -1051,6 +1045,8 @@ const submitAuth = async () => {
     await loadNotifications();
     await loadBlockedUsers();
     await loadFavoriteIds();
+    await loadFollowedSellers();
+    await loadCompletedCourses();
     await loadMetrics();
     await navigateTo("home");
     setNotice(result.message);
@@ -1071,6 +1067,11 @@ const cancelLogout = () => {
 
 const confirmLogout = async () => {
   showLogoutConfirm.value = false;
+  try {
+    await api.logout();
+  } catch (err) {
+    // If the remote session is already gone, the local cleanup still matters.
+  }
   storage.clear();
   user.value = null;
   myProducts.value = [];
@@ -1233,8 +1234,8 @@ const generateProductWithAI = async () => {
 
     setNotice(
       result.aiMode === "openai"
-        ? "Impulso IA conectada preparo tu publicacion."
-        : "Impulso IA local preparo tu publicacion."
+        ? "Impulso IA conectada preparó tu publicación."
+        : "Impulso IA local preparó tu publicación."
     );
   } catch (err) {
     handleRequestError(err);
@@ -1276,12 +1277,22 @@ const openContact = async (product) => {
   if (!requireLogin()) return;
 
   contactProduct.value = product;
-  chatDraft.initialMessage = `Hola, me interesa "${product.title}". Me gustaria saber mas.`;
+  contactSeller.value = null;
+  chatDraft.initialMessage = `Hola, me interesa "${product.title}". Me gustaría saber más.`;
   await trackProductEvent({
     productId: product.id,
     query: filters.search,
     eventType: "contact"
   });
+  await navigateTo("chat");
+};
+
+const openSellerContact = async (seller) => {
+  if (!requireLogin()) return;
+
+  contactProduct.value = null;
+  contactSeller.value = seller;
+  chatDraft.initialMessage = "";
   await navigateTo("chat");
 };
 
@@ -1437,38 +1448,32 @@ const unblockSelectedConversationUser = async () => {
 };
 
 const startConversation = async () => {
-  if (!contactProduct.value) return;
+  if (!contactProduct.value && !contactSeller.value) return;
 
   try {
     const result = await api.startConversation({
-      productId: contactProduct.value.id,
+      productId: contactProduct.value?.id,
+      sellerId: contactSeller.value?.id,
       initialMessage: chatDraft.initialMessage
     });
 
     contactProduct.value = null;
+    contactSeller.value = null;
     chatDraft.initialMessage = "";
     selectedConversation.value = result.conversation;
-    setNotice("Conversacion abierta.");
-    await loadConversations();
+    setNotice("Conversación abierta.");
     await selectConversation(result.conversation);
+    await loadConversations(false);
   } catch (err) {
     handleRequestError(err);
   }
 };
 
 const selectConversation = async (conversation) => {
-  if (socket && joinedConversationId) {
-    socket.emit("conversation:leave", joinedConversationId);
-  }
-
   selectedConversation.value = conversation;
   conversationSummary.value = null;
   connectSocket();
-
-  if (socket) {
-    socket.emit("conversation:join", conversation.id);
-    joinedConversationId = conversation.id;
-  }
+  joinedConversationId = conversation.id;
 
   messages.value = await api.messages(conversation.id);
   conversations.value = conversations.value.map((item) =>
@@ -1479,13 +1484,10 @@ const selectConversation = async (conversation) => {
 };
 
 const closeConversation = () => {
-  if (socket && joinedConversationId) {
-    socket.emit("conversation:leave", joinedConversationId);
-  }
-
   joinedConversationId = null;
   selectedConversation.value = null;
   contactProduct.value = null;
+  contactSeller.value = null;
   messages.value = [];
   typingUsers.value = {};
   quickReplies.value = [];
@@ -1549,24 +1551,7 @@ const deleteMessage = async (message, scope = "me") => {
 };
 
 const loadQuickReplies = async () => {
-  if (!selectedConversation.value) {
-    quickReplies.value = [];
-    return;
-  }
-
-  try {
-    const latestMessage = messages.value[messages.value.length - 1]?.body || "";
-    const result = await api.aiQuickReplies({
-      productTitle: selectedConversation.value.product_title,
-      incomingMessage: latestMessage
-    });
-    quickReplies.value = result.replies || [];
-  } catch (err) {
-    quickReplies.value = [
-      "Gracias por escribir. Con gusto te comparto mas detalles.",
-      "Podemos coordinar por aqui para mantener la conversacion segura."
-    ];
-  }
+  quickReplies.value = [];
 };
 
 const summarizeConversationWithAI = async () => {
@@ -1589,15 +1574,6 @@ const summarizeConversationWithAI = async () => {
 
     conversationSummary.value = result;
 
-    if (result.quickReply) {
-      quickReplies.value = uniqueTextArray([result.quickReply, ...quickReplies.value]).slice(0, 4);
-    }
-
-    setNotice(
-      result.aiMode === "openai"
-        ? "Impulso IA conectada resumio la conversacion."
-        : "Impulso IA local resumio la conversacion."
-    );
   } catch (err) {
     handleRequestError(err);
   }
@@ -1609,22 +1585,13 @@ const applyQuickReply = (reply) => {
 };
 
 const emitTyping = () => {
-  if (!socket || !selectedConversation.value) return;
-
-  socket.emit("conversation:typing", {
-    conversationId: selectedConversation.value.id,
-    isTyping: true
-  });
+  if (!selectedConversation.value) return;
 
   if (typingTimer) {
     window.clearTimeout(typingTimer);
   }
 
   typingTimer = window.setTimeout(() => {
-    socket?.emit("conversation:typing", {
-      conversationId: selectedConversation.value.id,
-      isTyping: false
-    });
     typingTimer = null;
   }, 1500);
 };
@@ -1655,7 +1622,6 @@ const sendMediaMessage = async (file, caption = "") => {
     clearChatMedia();
     chatDraft.message = "";
     await loadConversations(false);
-    await loadQuickReplies();
   } catch (err) {
     handleRequestError(err);
   }
@@ -1689,7 +1655,6 @@ const sendMessage = async () => {
       }
 
       await loadConversations(false);
-      await loadQuickReplies();
     } catch (err) {
       handleRequestError(err);
     }
@@ -1699,11 +1664,6 @@ const sendMessage = async () => {
   if (!chatDraft.message.trim()) return;
 
   try {
-    const safety = await api.aiSafetyCheck({ text: chatDraft.message });
-    safetyNotice.value =
-      safety.riskLevel === "bajo"
-        ? ""
-        : [safety.advice, safety.suggestedResponse].filter(Boolean).join(" ");
     const result = await api.sendMessage(
       selectedConversation.value.id,
       chatDraft.message
@@ -1718,7 +1678,6 @@ const sendMessage = async () => {
     }
 
     await loadConversations(false);
-    await loadQuickReplies();
   } catch (err) {
     handleRequestError(err);
   }
@@ -1752,6 +1711,8 @@ const initializeApp = async () => {
     await loadNotifications();
     await loadBlockedUsers();
     await loadFavoriteIds();
+    await loadFollowedSellers();
+    await loadCompletedCourses();
     await loadMetrics();
     productForm.city = user.value?.city || "";
     refreshTimer = window.setInterval(refreshChatState, 30000);
@@ -1790,6 +1751,9 @@ export const useMarketplace = () => ({
   favoriteProducts,
   sellerReviews,
   metrics,
+  followedSellerIds,
+  followedProducts,
+  completedCourseUrls,
   assistantResult,
   smartSearchResult,
   conversationSummary,
@@ -1807,6 +1771,7 @@ export const useMarketplace = () => ({
   messages,
   selectedConversation,
   contactProduct,
+  contactSeller,
   notifications,
   notificationPanelOpen,
   blockedUsers,
@@ -1821,6 +1786,8 @@ export const useMarketplace = () => ({
   courses,
   isLoggedIn,
   visibleProducts,
+  recentProducts,
+  sellerBadges,
   selectedCategoryName,
   unreadMessages,
   unreadNotifications,
@@ -1852,6 +1819,11 @@ export const useMarketplace = () => ({
   loadMyProducts,
   loadFavoriteIds,
   loadFavorites,
+  loadFollowedSellers,
+  toggleFollowSeller,
+  shareProduct,
+  loadCompletedCourses,
+  markCourseCompleted,
   toggleFavorite,
   reportProduct,
   loadMetrics,
@@ -1864,6 +1836,7 @@ export const useMarketplace = () => ({
   deleteProduct,
   showSimilar,
   openContact,
+  openSellerContact,
   loadConversations,
   loadNotifications,
   loadBlockedUsers,

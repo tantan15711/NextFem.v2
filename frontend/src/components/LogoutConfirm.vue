@@ -16,7 +16,7 @@ const emit = defineEmits(["cancel", "confirm"]);
         <p class="eyebrow">Cerrar sesion</p>
         <h2 id="logout-title">¿Seguro que quieres salir?</h2>
         <p>
-          Puedes volver a entrar con tu correo y contrasena. Tu perfil,
+          Puedes volver a entrar con tu correo y contraseña. Tu perfil,
           publicaciones y conversaciones se conservan.
         </p>
         <div class="confirm-actions">

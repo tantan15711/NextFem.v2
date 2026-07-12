@@ -25,6 +25,11 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: "/vendedora/:sellerId",
+    name: "seller-profile",
+    component: () => import("../views/SellerProfileView.vue")
+  },
+  {
     path: "/chat",
     name: "chat",
     component: () => import("../views/ChatView.vue"),

@@ -17,7 +17,7 @@ const {
 <template>
   <section class="form-band">
     <div class="form-copy">
-      <p class="eyebrow">Nueva publicacion</p>
+      <p class="eyebrow">Nueva publicación</p>
       <h1>Comparte lo que vendes, haces o puedes ofrecer.</h1>
       <p>
         No hay carrito ni cobros dentro de la plataforma. El contacto ocurre
@@ -29,7 +29,7 @@ const {
       <div class="ai-helper-card">
         <div>
           <p class="eyebrow">Impulso IA</p>
-          <strong>Escribe un titulo y deja que NextFem prepare tu publicacion.</strong>
+          <strong>Escribe un título y deja que NextFem prepare tu publicación.</strong>
         </div>
         <button type="button" @click="generateProductWithAI">
           <Sparkles :size="17" />
@@ -87,7 +87,7 @@ const {
         </select>
       </label>
       <label>
-        Descripcion
+        Descripción
         <textarea
           v-mobile-keyboard
           v-model="productForm.description"
@@ -143,7 +143,7 @@ const {
           <button type="button" @click="removeProductMedia(index)">Quitar</button>
         </article>
       </div>
-      <button class="primary wide" type="submit">Guardar publicacion</button>
+      <button class="primary wide" type="submit">Guardar publicación</button>
     </form>
   </section>
 </template>

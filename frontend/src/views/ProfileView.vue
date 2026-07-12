@@ -31,7 +31,7 @@ const {
       <p>{{ user?.bio || "Perfil listo para presentar tu emprendimiento." }}</p>
       <div class="profile-facts">
         <span>{{ user?.city || "Sin ciudad" }}</span>
-        <span>{{ user?.phone || "Sin telefono" }}</span>
+        <span>{{ user?.phone || "Sin teléfono" }}</span>
       </div>
     </div>
 
@@ -44,8 +44,8 @@ const {
           <span>Publicaciones activas</span>
         </article>
         <article>
-          <strong>{{ metrics?.conversations || 0 }}</strong>
-          <span>Conversaciones</span>
+          <strong>{{ metrics?.sold_products || 0 }}</strong>
+          <span>Productos vendidos</span>
         </article>
         <article>
           <strong>{{ metrics?.favorite_count || 0 }}</strong>
@@ -53,7 +53,11 @@ const {
         </article>
         <article>
           <strong>{{ metrics?.average_rating || 0 }}</strong>
-          <span>Calificacion</span>
+          <span>Calificación</span>
+        </article>
+        <article>
+          <strong>{{ metrics?.followers_count || 0 }}</strong>
+          <span>Seguidoras</span>
         </article>
       </div>
     </section>
@@ -96,7 +100,7 @@ const {
       </label>
       <div class="two-columns">
         <label>
-          Telefono
+          Teléfono
           <input
             v-mobile-keyboard
             v-model="profileForm.phone"
@@ -162,7 +166,7 @@ const {
         </div>
       </div>
       <div v-if="favoriteProducts.length === 0" class="empty-state">
-        Aun no has guardado productos.
+        Aún no has guardado productos.
       </div>
       <article v-for="product in favoriteProducts" :key="product.id" class="own-product">
         <div>
@@ -182,7 +186,7 @@ const {
         <button type="button" @click="loadSellerReviews()">Actualizar</button>
       </div>
       <div v-if="sellerReviews.length === 0" class="empty-state">
-        Aun no tienes reseñas.
+        Aún no tienes reseñas.
       </div>
       <article v-for="review in sellerReviews" :key="review.id" class="own-product review-item">
         <div>

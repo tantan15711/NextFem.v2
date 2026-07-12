@@ -10,6 +10,7 @@ import {
   MoreVertical,
   Navigation,
   Paperclip,
+  Plus,
   Send,
   Shield,
   Sparkles,
@@ -22,12 +23,13 @@ import { useMarketplace } from "../composables/useMarketplace";
 const mediaInput = ref(null);
 const messageStream = ref(null);
 const activeMessageMenuId = ref(null);
+const chatToolsOpen = ref(false);
 
 const {
   chatDraft,
+  contactSeller,
   contactProduct,
   conversations,
-  applyQuickReply,
   chatLocationDraft,
   chatMediaFile,
   chatMediaPreview,
@@ -43,7 +45,6 @@ const {
   messages,
   onChatMediaChange,
   prepareLocationMessage,
-  quickReplies,
   safetyNotice,
   selectedConversation,
   selectedConversationBlocked,
@@ -73,7 +74,7 @@ const conversationTime = (conversation) =>
   }).format(new Date(conversation.last_message_created_at || conversation.updated_at));
 
 const mapUrl = (message) =>
-  `https://www.google.com/maps?q=${message.location_lat},${message.location_lng}`;
+  `https://www.google.com/maps?q=${message.latitude},${message.longitude}`;
 
 const isMine = (message) => String(message.sender_id) === String(user.value?.id);
 
@@ -88,7 +89,7 @@ const toggleMessageMenu = (message) => {
 const handleDeleteMessage = async (message, scope) => {
   if (
     scope === "everyone" &&
-    !window.confirm("Borrar este mensaje para todos? Esta accion afectara a la otra usuaria.")
+    !window.confirm("¿Borrar este mensaje para todos? Esta acción afectará a la otra usuaria.")
   ) {
     return;
   }
@@ -119,15 +120,14 @@ watch(
 <template>
   <section
     class="chat-layout"
-    :class="{ 'conversation-open': selectedConversation || contactProduct }"
+    :class="{ 'conversation-open': selectedConversation || contactProduct || contactSeller }"
   >
-    <aside v-if="!selectedConversation && !contactProduct" class="conversation-list chat-inbox">
+    <aside v-if="!contactProduct && !contactSeller" class="conversation-list chat-inbox">
       <div class="section-heading compact inbox-heading">
         <div>
           <p class="eyebrow">Mensajes</p>
           <h2>Chats</h2>
         </div>
-        <button type="button" @click="loadConversations">Actualizar</button>
       </div>
 
       <article
@@ -140,7 +140,7 @@ watch(
         <span v-else class="conversation-avatar">{{ avatarInitial(conversation) }}</span>
         <div class="conversation-main">
           <strong>{{ conversation.other_user_name }}</strong>
-          <p>{{ conversation.last_message || "Sin mensajes todavia." }}</p>
+          <p>{{ conversation.last_message || "Sin mensajes todavía." }}</p>
         </div>
         <div class="conversation-side">
           <time>{{ conversationTime(conversation) }}</time>
@@ -154,14 +154,14 @@ watch(
       </div>
     </aside>
 
-    <section v-if="selectedConversation || contactProduct" class="message-panel chat-thread">
-      <div v-if="contactProduct" class="new-chat-box">
+    <section v-if="selectedConversation || contactProduct || contactSeller" class="message-panel chat-thread">
+      <div v-if="contactProduct || contactSeller" class="new-chat-box">
         <button class="back-chat" type="button" @click="closeConversation">
           <ArrowLeft :size="18" />
           Volver
         </button>
         <p class="eyebrow">Nuevo chat</p>
-        <h2>{{ contactProduct.title }}</h2>
+        <h2>{{ contactProduct?.title || contactSeller?.business_name || contactSeller?.name }}</h2>
         <textarea
           v-mobile-keyboard
           v-model="chatDraft.initialMessage"
@@ -169,6 +169,7 @@ watch(
           inputmode="text"
           enterkeyhint="send"
           autocomplete="off"
+          :placeholder="contactSeller ? 'Escribe tu mensaje para la vendedora...' : ''"
         ></textarea>
         <button class="primary" type="button" @click="startConversation">
           <Send :size="17" />
@@ -274,7 +275,7 @@ watch(
               <a class="location-card" :href="mapUrl(message)" target="_blank" rel="noreferrer">
                 <MapPin :size="19" />
                 <span>
-                  <strong>{{ message.location_live ? "Ubicacion en tiempo real" : "Ubicacion fija" }}</strong>
+                  <strong>{{ message.location_mode === "realtime" ? "Ubicación en tiempo real" : "Ubicación fija" }}</strong>
                   {{ message.location_label || "Abrir en mapa" }}
                 </span>
               </a>
@@ -304,22 +305,10 @@ watch(
           </article>
         </div>
 
-        <div v-if="quickReplies.length" class="quick-replies">
-          <button
-            v-for="reply in quickReplies"
-            :key="reply"
-            type="button"
-            @click="applyQuickReply(reply)"
-          >
-            {{ reply }}
-          </button>
-        </div>
-
         <section v-if="conversationSummary" class="chat-summary-card">
           <div>
             <p class="eyebrow">Impulso IA</p>
-            <h3>Resumen de la conversacion</h3>
-            <small>{{ conversationSummary.aiMode === "openai" ? "IA conectada" : "IA local" }}</small>
+            <h3>Resumen de la conversación</h3>
           </div>
           <p>{{ conversationSummary.summary }}</p>
           <ul v-if="conversationSummary.pendingQuestions?.length">
@@ -344,36 +333,15 @@ watch(
             accept="image/*,video/mp4,video/webm,audio/*,application/pdf"
             @change="onChatMediaChange"
           />
-          <button title="Adjuntar multimedia" type="button" @click="mediaInput?.click()">
-            <Paperclip :size="18" />
-            Multimedia
-          </button>
           <button
-            v-if="!isRecordingAudio"
-            title="Grabar audio"
+            class="compose-tools-toggle"
+            title="Opciones"
             type="button"
-            @click="startAudioRecording"
+            :aria-expanded="chatToolsOpen"
+            @click="chatToolsOpen = !chatToolsOpen"
           >
-            <Mic :size="18" />
-            Audio
-          </button>
-          <button
-            v-else
-            class="recording"
-            title="Detener grabacion"
-            type="button"
-            @click="stopAudioRecording"
-          >
-            <Square :size="18" />
-            Detener
-          </button>
-          <button title="Compartir ubicacion fija" type="button" @click="prepareLocationMessage(false)">
-            <MapPin :size="18" />
-            Fija
-          </button>
-          <button title="Compartir ubicacion en tiempo real" type="button" @click="prepareLocationMessage(true)">
-            <Navigation :size="18" />
-            Tiempo real
+            <Plus :size="20" />
+            Opciones
           </button>
           <input
             v-mobile-keyboard
@@ -390,6 +358,42 @@ watch(
             <Send :size="18" />
           </button>
         </form>
+
+        <Transition name="tools-slide">
+          <div v-if="chatToolsOpen" class="compose-tools-panel">
+            <button title="Adjuntar multimedia" type="button" @click="mediaInput?.click(); chatToolsOpen = false">
+              <Paperclip :size="18" />
+              Multimedia
+            </button>
+            <button
+              v-if="!isRecordingAudio"
+              title="Grabar audio"
+              type="button"
+              @click="startAudioRecording(); chatToolsOpen = false"
+            >
+              <Mic :size="18" />
+              Audio
+            </button>
+            <button
+              v-else
+              class="recording"
+              title="Detener grabacion"
+              type="button"
+              @click="stopAudioRecording(); chatToolsOpen = false"
+            >
+              <Square :size="18" />
+              Detener
+            </button>
+            <button title="Compartir ubicacion fija" type="button" @click="prepareLocationMessage(false); chatToolsOpen = false">
+              <MapPin :size="18" />
+              Ubicación fija
+            </button>
+            <button title="Compartir ubicacion en tiempo real" type="button" @click="prepareLocationMessage(true); chatToolsOpen = false">
+              <Navigation :size="18" />
+              Tiempo real
+            </button>
+          </div>
+        </Transition>
 
         <div v-if="chatMediaFile || chatLocationDraft" class="compose-preview">
           <img v-if="chatMediaPreview" :src="chatMediaPreview" alt="" />

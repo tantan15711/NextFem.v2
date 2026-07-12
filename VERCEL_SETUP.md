@@ -1,52 +1,35 @@
-# Vercel para NextFem
+# Configuracion de Vercel para NextFem con Supabase
 
-NextFem usa:
+Esta version no necesita desplegar backend Express. El frontend se despliega en Vercel y se conecta directo a Supabase.
 
-- Frontend en Vercel.
-- Backend en Railway.
+## Settings
 
-## Opcion recomendada
+- Framework Preset: `Vite`
+- Root Directory: `./`
+- Install Command: `npm --prefix frontend ci`
+- Build Command: `npm --prefix frontend run build`
+- Output Directory: `frontend/dist`
 
-Al importar el repo en Vercel, usa:
+## Environment Variables
 
-```txt
-Root Directory: ./
-Framework Preset: Other o Vite
-Install Command: npm --prefix frontend ci
-Build Command: npm --prefix frontend run build
-Output Directory: frontend/dist
-```
-
-El archivo `vercel.json` de la raiz ya trae esos comandos.
-
-## Si usas Root Directory frontend
-
-Tambien funciona, pero entonces debe quedar asi:
-
-```txt
-Root Directory: frontend
-Install Command: npm ci
-Build Command: npm run build
-Output Directory: dist
-```
-
-Nunca pongas `cd frontend &&` si `Root Directory` ya es `frontend`.
-
-## Variables obligatorias
-
-En Vercel agrega:
+Agrega estas variables en Vercel:
 
 ```env
-VITE_API_URL=https://TU-BACKEND.up.railway.app/api
-VITE_SOCKET_URL=https://TU-BACKEND.up.railway.app
+VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
+VITE_SUPABASE_ANON_KEY=TU_ANON_KEY_DE_SUPABASE
 ```
 
-Despues haz `Redeploy` con `Clear cache`.
+## Supabase
 
-## Si tienes varios proyectos duplicados
+Antes de probar la app desplegada:
 
-Conserva uno solo y borra los demas desde:
+1. Ejecuta `supabase/schema.sql` en Supabase SQL Editor.
+2. Crea los buckets publicos:
+   - `nextfem-products`
+   - `nextfem-avatars`
+   - `nextfem-chat`
+3. Activa realtime para:
+   - `conversations`
+   - `messages`
+   - `notifications`
 
-```txt
-Project > Settings > Delete Project
-```
