@@ -496,7 +496,7 @@ const compressImage = (file) => {
     const objectUrl = URL.createObjectURL(file);
 
     image.onload = () => {
-      const maxSide = 1800;
+      const maxSide = 1280;
       const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(image.width * scale);
@@ -521,7 +521,7 @@ const compressImage = (file) => {
           );
         },
         "image/webp",
-        0.84
+        0.78
       );
     };
 
@@ -573,6 +573,7 @@ const prepareLocationMessage = async (live = false) => {
     return;
   }
 
+  setNotice("Obteniendo ubicacion...");
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const lat = position.coords.latitude;
@@ -595,9 +596,9 @@ const prepareLocationMessage = async (live = false) => {
       setError("No se pudo obtener tu ubicacion. Revisa permisos del navegador.");
     },
     {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 60000
+      enableHighAccuracy: false,
+      timeout: 6000,
+      maximumAge: 300000
     }
   );
 };
@@ -1143,18 +1144,15 @@ const createProduct = async () => {
   loading.value = true;
 
   try {
-    const media = [];
-
-    for (const [index, file] of productMediaFiles.value.entries()) {
-      const uploaded = await uploadProductMediaFile(file);
-      media.push({
-        ...uploaded,
+    const media = await Promise.all(
+      productMediaFiles.value.map(async (file, index) => ({
+        ...(await uploadProductMediaFile(file)),
         sortOrder: index,
         isPrimary: index === 0
-      });
-    }
+      }))
+    );
 
-    await api.createProduct({
+    const result = await api.createProduct({
       title: productForm.title,
       description: productForm.description,
       categoryId: productForm.categoryId || null,
@@ -1164,6 +1162,26 @@ const createProduct = async () => {
       media
     });
 
+    const createdProduct = {
+      ...result.product,
+      media: media.map((item, index) => ({
+        ...item,
+        sortOrder: index,
+        isPrimary: index === 0
+      })),
+      category_name:
+        categories.value.find((category) => String(category.id) === String(productForm.categoryId))?.name ||
+        "General",
+      seller_name: user.value?.business_name || user.value?.name,
+      seller_business_name: user.value?.business_name,
+      seller_avatar_url: user.value?.avatar_url,
+      seller_rating: metrics.value?.average_rating || 0,
+      favorite_count: 0
+    };
+
+    products.value = [createdProduct, ...products.value];
+    myProducts.value = [createdProduct, ...myProducts.value];
+
     productForm.title = "";
     productForm.description = "";
     productForm.categoryId = "";
@@ -1172,9 +1190,10 @@ const createProduct = async () => {
     clearProductMedia();
 
     setNotice("Publicacion creada correctamente.");
-    await loadProducts();
-    await loadMyProducts();
     await navigateTo("profile");
+    window.setTimeout(() => {
+      Promise.all([loadProducts(), loadMyProducts(), loadMetrics()]).catch(() => {});
+    }, 1200);
   } catch (err) {
     handleRequestError(err);
   } finally {
@@ -1611,33 +1630,127 @@ const emitTyping = () => {
   }, 1500);
 };
 
+const getConversationReceiverId = () => {
+  if (!selectedConversation.value || !user.value?.id) return null;
+
+  return String(selectedConversation.value.buyer_id) === String(user.value.id)
+    ? selectedConversation.value.seller_id
+    : selectedConversation.value.buyer_id;
+};
+
+const touchConversationPreview = ({ body, mediaName, locationLabel, createdAt }) => {
+  if (!selectedConversation.value) return;
+
+  const conversationId = selectedConversation.value.id;
+  const preview = body || mediaName || locationLabel || "Contenido multimedia";
+
+  selectedConversation.value = {
+    ...selectedConversation.value,
+    last_message: preview,
+    updated_at: createdAt
+  };
+
+  conversations.value = conversations.value
+    .map((conversation) =>
+      String(conversation.id) === String(conversationId)
+        ? {
+            ...conversation,
+            last_message: preview,
+            last_message_created_at: createdAt,
+            updated_at: createdAt
+          }
+        : conversation
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.last_message_created_at || b.updated_at || 0) -
+        new Date(a.last_message_created_at || a.updated_at || 0)
+    );
+};
+
+const queueChatRefresh = () => {
+  window.setTimeout(() => {
+    if (isLoggedIn.value) {
+      loadConversations(false).catch(() => {});
+    }
+  }, 1400);
+};
+
+const makeLocalMessage = (payload) => {
+  const createdAt = new Date().toISOString();
+
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    conversation_id: selectedConversation.value?.id,
+    sender_id: user.value?.id,
+    sender_name: user.value?.business_name || user.value?.name || "Tu",
+    body: payload.body || "",
+    message_type: payload.messageType || "text",
+    media_url: payload.mediaUrl || null,
+    media_mime: payload.mediaMime || null,
+    media_name: payload.mediaName || null,
+    latitude: payload.latitude || payload.locationLat || null,
+    longitude: payload.longitude || payload.locationLng || null,
+    location_label: payload.locationLabel || null,
+    location_mode:
+      payload.locationMode ||
+      (payload.locationLive === true ? "realtime" : payload.locationLat ? "fixed" : null),
+    read_at: null,
+    created_at: createdAt,
+    is_local: true
+  };
+};
+
+const settleLocalMessage = (localId, serverMessage) => {
+  const serverExists = messages.value.some((message) => String(message.id) === String(serverMessage.id));
+  messages.value = messages.value.filter((message) => String(message.id) !== String(localId));
+
+  if (!serverExists) {
+    messages.value = [...messages.value, serverMessage];
+  }
+};
+
 const sendMediaMessage = async (file, caption = "") => {
   if (!selectedConversation.value || !file) return;
+
+  const localUrl = URL.createObjectURL(file);
+  const messageType = getMessageTypeForFile(file);
+  const body = caption || chatDraft.message;
+  const localMessage = makeLocalMessage({
+    body,
+    messageType,
+    mediaUrl: localUrl,
+    mediaMime: file.type,
+    mediaName: file.name
+  });
+
+  messages.value = [...messages.value, localMessage];
+  touchConversationPreview({
+    body,
+    mediaName: file.name,
+    createdAt: localMessage.created_at
+  });
+  clearChatMedia();
+  chatDraft.message = "";
 
   try {
     const uploadFile = file.type.startsWith("image/") ? await compressImage(file) : file;
     const result = await api.uploadFile(uploadFile);
-    const messageType = getMessageTypeForFile(uploadFile);
     const sent = await api.sendMessage(selectedConversation.value.id, {
-      body: caption || chatDraft.message,
+      body,
       messageType,
       mediaUrl: result.imageUrl,
       mediaMime: uploadFile.type,
-      mediaName: uploadFile.name
+      mediaName: uploadFile.name,
+      receiverId: getConversationReceiverId(),
+      productId: selectedConversation.value.product_id
     });
-
-    const exists = messages.value.some(
-      (message) => String(message.id) === String(sent.messageData.id)
-    );
-
-    if (!exists) {
-      messages.value = [...messages.value, sent.messageData];
-    }
-
-    clearChatMedia();
-    chatDraft.message = "";
-    await loadConversations(false);
+    settleLocalMessage(localMessage.id, sent.messageData);
+    URL.revokeObjectURL(localUrl);
+    queueChatRefresh();
   } catch (err) {
+    messages.value = messages.value.filter((message) => String(message.id) !== String(localMessage.id));
+    URL.revokeObjectURL(localUrl);
     handleRequestError(err);
   }
 };
@@ -1651,26 +1764,31 @@ const sendMessage = async () => {
   }
 
   if (chatLocationDraft.value) {
+    const payload = {
+      body: chatDraft.message,
+      messageType: "location",
+      ...chatLocationDraft.value
+    };
+    const localMessage = makeLocalMessage(payload);
+    messages.value = [...messages.value, localMessage];
+    touchConversationPreview({
+      body: payload.body,
+      locationLabel: payload.locationLabel,
+      createdAt: localMessage.created_at
+    });
+    chatDraft.message = "";
+    clearLocationDraft();
+
     try {
       const result = await api.sendMessage(selectedConversation.value.id, {
-        body: chatDraft.message,
-        messageType: "location",
-        ...chatLocationDraft.value
+        ...payload,
+        receiverId: getConversationReceiverId(),
+        productId: selectedConversation.value.product_id
       });
-
-      chatDraft.message = "";
-      clearLocationDraft();
-
-      const exists = messages.value.some(
-        (message) => String(message.id) === String(result.messageData.id)
-      );
-
-      if (!exists) {
-        messages.value = [...messages.value, result.messageData];
-      }
-
-      await loadConversations(false);
+      settleLocalMessage(localMessage.id, result.messageData);
+      queueChatRefresh();
     } catch (err) {
+      messages.value = messages.value.filter((message) => String(message.id) !== String(localMessage.id));
       handleRequestError(err);
     }
     return;
@@ -1678,22 +1796,28 @@ const sendMessage = async () => {
 
   if (!chatDraft.message.trim()) return;
 
+  const body = chatDraft.message.trim();
+  const localMessage = makeLocalMessage({ body });
+  messages.value = [...messages.value, localMessage];
+  touchConversationPreview({
+    body,
+    createdAt: localMessage.created_at
+  });
+  chatDraft.message = "";
+
   try {
     const result = await api.sendMessage(
       selectedConversation.value.id,
-      chatDraft.message
+      {
+        body,
+        receiverId: getConversationReceiverId(),
+        productId: selectedConversation.value.product_id
+      }
     );
-    chatDraft.message = "";
-    const exists = messages.value.some(
-      (message) => String(message.id) === String(result.messageData.id)
-    );
-
-    if (!exists) {
-      messages.value = [...messages.value, result.messageData];
-    }
-
-    await loadConversations(false);
+    settleLocalMessage(localMessage.id, result.messageData);
+    queueChatRefresh();
   } catch (err) {
+    messages.value = messages.value.filter((message) => String(message.id) !== String(localMessage.id));
     handleRequestError(err);
   }
 };

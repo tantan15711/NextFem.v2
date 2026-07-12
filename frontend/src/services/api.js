@@ -817,6 +817,7 @@ export const api = {
 
   async createProduct(payload) {
     const sellerId = await currentUserId();
+    const publishedAt = nowIso();
     const product = unwrap(
       await requireSupabase()
         .from("products")
@@ -830,7 +831,7 @@ export const api = {
           image_url: payload.media?.[0]?.url || payload.imageUrl || null,
           city: payload.city,
           status: "active",
-          published_at: nowIso()
+          published_at: publishedAt
         })
         .select()
         .single()
@@ -850,26 +851,27 @@ export const api = {
       );
     }
 
-    const followers = unwrap(
-      await requireSupabase()
-        .from("seller_followers")
-        .select("follower_id")
-        .eq("seller_id", sellerId)
-    );
-    await Promise.all(
-      followers.map((follower) =>
-        makeNotification({
-          userId: follower.follower_id,
-          actorId: sellerId,
-          productId: product.id,
-          type: "new_product",
-          title: "Nueva publicación",
-          body: `Una vendedora que sigues publicó "${product.title}".`
-        })
+    requireSupabase()
+      .from("seller_followers")
+      .select("follower_id")
+      .eq("seller_id", sellerId)
+      .then(({ data }) =>
+        Promise.all(
+          (data || []).map((follower) =>
+            makeNotification({
+              userId: follower.follower_id,
+              actorId: sellerId,
+              productId: product.id,
+              type: "new_product",
+              title: "Nueva publicacion",
+              body: `Una vendedora que sigues publico "${product.title}".`
+            })
+          )
+        )
       )
-    );
+      .catch(() => {});
 
-    return { product, message: "Publicacion creada correctamente." };
+    return { product: { ...product, media }, message: "Publicacion creada correctamente." };
   },
 
   async deleteProduct(id) {
@@ -990,7 +992,11 @@ export const api = {
     }
 
     if (payload.initialMessage) {
-      await this.sendMessage(conversation.id, payload.initialMessage);
+      await this.sendMessage(conversation.id, {
+        body: payload.initialMessage,
+        receiverId: sellerId,
+        productId: product?.id || null
+      });
     }
 
     const [formatted] = await formatConversationRows([conversation], buyerId);
@@ -1027,13 +1033,6 @@ export const api = {
   async sendMessage(conversationId, payload) {
     const senderId = await currentUserId();
     const body = typeof payload === "string" ? payload : payload.body;
-    const conversation = unwrap(
-      await requireSupabase()
-        .from("conversations")
-        .select(conversationSelect())
-        .eq("id", conversationId)
-        .single()
-    );
     const messageData = unwrap(
       await requireSupabase()
         .from("messages")
@@ -1055,24 +1054,48 @@ export const api = {
         .select()
         .single()
     );
-    await requireSupabase()
+
+    requireSupabase()
       .from("conversations")
       .update({ updated_at: nowIso() })
-      .eq("id", conversationId);
+      .eq("id", conversationId)
+      .then(() => {})
+      .catch(() => {});
 
-    const receiverId =
-      String(conversation.buyer_id) === String(senderId)
-        ? conversation.seller_id
-        : conversation.buyer_id;
-    await makeNotification({
-      userId: receiverId,
-      actorId: senderId,
-      conversationId,
-      productId: conversation.product_id,
-      type: "message",
-      title: "Nuevo mensaje",
-      body: body || payload.mediaName || "Te enviaron contenido multimedia."
-    });
+    if (payload.receiverId) {
+      makeNotification({
+        userId: payload.receiverId,
+        actorId: senderId,
+        conversationId,
+        productId: payload.productId || null,
+        type: "message",
+        title: "Nuevo mensaje",
+        body: body || payload.mediaName || "Te enviaron contenido multimedia."
+      }).catch(() => {});
+    } else {
+      requireSupabase()
+        .from("conversations")
+        .select(conversationSelect())
+        .eq("id", conversationId)
+        .single()
+        .then(({ data }) => {
+          if (!data) return null;
+          const receiverId =
+            String(data.buyer_id) === String(senderId)
+              ? data.seller_id
+              : data.buyer_id;
+          return makeNotification({
+            userId: receiverId,
+            actorId: senderId,
+            conversationId,
+            productId: data.product_id,
+            type: "message",
+            title: "Nuevo mensaje",
+            body: body || payload.mediaName || "Te enviaron contenido multimedia."
+          });
+        })
+        .catch(() => {});
+    }
 
     return { messageData };
   },
