@@ -894,21 +894,36 @@ const toggleFavorite = async (product) => {
   if (!requireLogin()) return;
 
   const productId = String(product.id);
+  const wasFavorite = favoriteIds.value.includes(productId);
+  const previousFavoriteIds = [...favoriteIds.value];
+  const previousFavoriteProducts = [...favoriteProducts.value];
 
   try {
-    if (favoriteIds.value.includes(productId)) {
-      await api.removeFavorite(product.id);
+    if (wasFavorite) {
       favoriteIds.value = favoriteIds.value.filter((id) => id !== productId);
+      favoriteProducts.value = favoriteProducts.value.filter((item) => String(item.id) !== productId);
+      await api.removeFavorite(product.id);
       setNotice("Producto quitado de favoritos.");
     } else {
-      await api.addFavorite(product.id);
       favoriteIds.value = [...favoriteIds.value, productId];
+      if (!favoriteProducts.value.some((item) => String(item.id) === productId)) {
+        favoriteProducts.value = [product, ...favoriteProducts.value];
+      }
+      await api.addFavorite(product.id);
       setNotice("Producto guardado para verlo despues.");
     }
 
-    await loadFavorites();
-    await loadProducts();
+    products.value = products.value.map((item) =>
+      String(item.id) === productId
+        ? {
+            ...item,
+            favorite_count: Math.max(0, Number(item.favorite_count || 0) + (wasFavorite ? -1 : 1))
+          }
+        : item
+    );
   } catch (err) {
+    favoriteIds.value = previousFavoriteIds;
+    favoriteProducts.value = previousFavoriteProducts;
     handleRequestError(err);
   }
 };

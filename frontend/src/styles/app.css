@@ -1134,12 +1134,23 @@ h3 {
   padding: 0;
   color: var(--wine);
   box-shadow: none;
+  transform: translateZ(0);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .soft-icon.active {
   color: white;
   background: var(--wine);
   border-color: var(--wine);
+  transform: scale(1.04);
+}
+
+.soft-icon:active {
+  transform: scale(0.94);
 }
 
 .tag {

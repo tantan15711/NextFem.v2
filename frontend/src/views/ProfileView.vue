@@ -1,5 +1,7 @@
 <script setup>
 import { Camera, Trash2 } from "lucide-vue-next";
+import { ref } from "vue";
+import ProductDetailModal from "../components/ProductDetailModal.vue";
 import { useMarketplace } from "../composables/useMarketplace";
 
 const {
@@ -18,6 +20,12 @@ const {
   sellerReviews,
   user
 } = useMarketplace();
+
+const selectedProduct = ref(null);
+
+const openSavedProduct = (product) => {
+  selectedProduct.value = product;
+};
 </script>
 
 <template>
@@ -173,7 +181,7 @@ const {
           <strong>{{ product.title }}</strong>
           <span>{{ product.seller_name }} - {{ money(product.price) }}</span>
         </div>
-        <button type="button" @click="goTo('home')">Ver</button>
+        <button type="button" @click="openSavedProduct(product)">Ver</button>
       </article>
     </section>
 
@@ -197,5 +205,6 @@ const {
       </article>
     </section>
 
+    <ProductDetailModal :product="selectedProduct" @close="selectedProduct = null" />
   </section>
 </template>
