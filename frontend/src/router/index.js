@@ -13,6 +13,11 @@ const routes = [
     component: () => import("../views/AuthView.vue")
   },
   {
+    path: "/recuperar",
+    name: "recovery",
+    component: () => import("../views/AuthView.vue")
+  },
+  {
     path: "/publicar",
     name: "publish",
     component: () => import("../views/PublishView.vue"),
@@ -39,6 +44,12 @@ const routes = [
     path: "/aprender",
     name: "courses",
     component: () => import("../views/CoursesView.vue")
+  },
+  {
+    path: "/admin",
+    name: "admin",
+    component: () => import("../views/AdminView.vue"),
+    meta: { requiresAuth: true }
   },
   {
     path: "/:pathMatch(.*)*",

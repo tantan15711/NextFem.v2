@@ -28,22 +28,17 @@ const {
     <form class="panel-form" @submit.prevent="createProduct">
       <div class="ai-helper-card">
         <div>
-          <p class="eyebrow">Impulso IA</p>
+          <p class="eyebrow">Sugerencias</p>
           <strong>Escribe un título y deja que NextFem prepare tu publicación.</strong>
         </div>
         <button type="button" @click="generateProductWithAI">
           <Sparkles :size="17" />
           Sugerir
         </button>
-        <p v-if="false" class="legacy-ai-result">
-          Categoria sugerida: <b>{{ assistantResult.categoryName }}</b> · Precio sugerido:
-          <b>${{ assistantResult.suggestedPrice }}</b>
-        </p>
         <div v-if="assistantResult" class="ai-result-card">
           <p>
-            Categoria sugerida: <b>{{ assistantResult.categoryName }}</b> -
+            Categoría sugerida: <b>{{ assistantResult.categoryName }}</b> -
             Precio sugerido: <b>${{ assistantResult.suggestedPrice }}</b>
-            <small>{{ assistantResult.aiMode === "openai" ? "IA conectada" : "IA local" }}</small>
           </p>
           <div v-if="assistantResult.hashtags?.length" class="ai-chip-row">
             <span v-for="tag in assistantResult.hashtags" :key="tag">{{ tag }}</span>
@@ -66,7 +61,7 @@ const {
       </div>
 
       <label>
-        Titulo
+        Título
         <input
           v-mobile-keyboard
           v-model="productForm.title"
@@ -77,8 +72,9 @@ const {
           autocomplete="off"
         />
       </label>
+
       <label>
-        Categoria
+        Categoría
         <select v-model="productForm.categoryId">
           <option value="">General</option>
           <option v-for="category in categories" :key="category.id" :value="category.id">
@@ -86,6 +82,7 @@ const {
           </option>
         </select>
       </label>
+
       <label>
         Descripción
         <textarea
@@ -98,6 +95,20 @@ const {
           autocomplete="off"
         ></textarea>
       </label>
+
+      <label>
+        Hashtags
+        <input
+          v-mobile-keyboard
+          v-model="productForm.hashtags"
+          type="text"
+          inputmode="text"
+          enterkeyhint="next"
+          autocomplete="off"
+          placeholder="#Ropa #Tapachula #Regalos"
+        />
+      </label>
+
       <div class="two-columns">
         <label>
           Precio MXN
@@ -123,6 +134,7 @@ const {
           />
         </label>
       </div>
+
       <label class="file-picker">
         <input accept="image/*,video/mp4,video/webm" multiple type="file" @change="onProductMediaChange" />
         <span class="file-picker-icon"><ImagePlus :size="22" /></span>
@@ -131,6 +143,7 @@ const {
           <small>Hasta 8 archivos. JPG, PNG, WEBP, MP4 o WEBM.</small>
         </span>
       </label>
+
       <div v-if="productMediaPreviews.length" class="media-preview-grid">
         <article
           v-for="(item, index) in productMediaPreviews"
@@ -143,6 +156,7 @@ const {
           <button type="button" @click="removeProductMedia(index)">Quitar</button>
         </article>
       </div>
+
       <button class="primary wide" type="submit">Guardar publicación</button>
     </form>
   </section>

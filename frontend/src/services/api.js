@@ -41,6 +41,30 @@ const unwrap = ({ data, error }) => {
 
 const nowIso = () => new Date().toISOString();
 
+const normalizeHashtags = (value = []) => {
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[\s,]+/)
+        .filter(Boolean);
+
+  return [
+    ...new Set(
+      list
+        .map((tag) => String(tag).trim().replace(/^#/, ""))
+        .filter(Boolean)
+        .map((tag) => `#${tag.slice(0, 36)}`)
+    )
+  ].slice(0, 10);
+};
+
+const normalizePhoneForOtp = (phone = "") => {
+  const clean = String(phone).replace(/[^\d+]/g, "");
+  if (!clean) return "";
+  if (clean.startsWith("+")) return clean;
+  return `+52${clean}`;
+};
+
 export const storage = {
   getToken() {
     return localStorage.getItem("nextfem_supabase_token");
@@ -86,6 +110,7 @@ const formatProfile = (profile) =>
         bio: profile.bio,
         avatar_url: profile.avatar_url,
         role: profile.role,
+        is_disabled: Boolean(profile.is_disabled),
         sales_count: profile.sales_count || 0,
         completed_all_courses: Boolean(profile.completed_all_courses)
       }
@@ -376,7 +401,7 @@ export const api = {
       options: {
         data: {
           name: payload.name,
-          business_name: payload.businessName
+          business_name: payload.businessName || null
         }
       }
     });
@@ -389,7 +414,7 @@ export const api = {
           id: data.user.id,
           email: payload.email,
           name: payload.name,
-          business_name: payload.businessName,
+          business_name: payload.businessName || null,
           phone: payload.phone,
           city: payload.city,
           role: "seller"
@@ -400,6 +425,70 @@ export const api = {
     const user = formatProfile(profile);
     storage.setSession(data.session?.access_token, user);
     return { token: data.session?.access_token || "supabase-session", user };
+  },
+
+  async requestPasswordRecovery(payload) {
+    const client = requireSupabase();
+    const method = payload.method || "email";
+
+    if (method === "sms") {
+      const phone = normalizePhoneForOtp(payload.phone);
+      if (!phone) throw new Error("Escribe un número de teléfono válido.");
+
+      const { error } = await client.auth.signInWithOtp({ phone });
+      if (error) throw new Error(error.message);
+
+      return {
+        method,
+        message: "Te enviamos un código por SMS. Escríbelo para continuar."
+      };
+    }
+
+    if (!payload.email) throw new Error("Escribe el correo de tu cuenta.");
+
+    const redirectTo = `${window.location.origin}/recuperar`;
+    const { error } = await client.auth.resetPasswordForEmail(payload.email, { redirectTo });
+    if (error) throw new Error(error.message);
+
+    return {
+      method,
+      message:
+        "Te enviamos las instrucciones al correo. Si recibes un código, escríbelo aquí; si recibes un enlace, ábrelo y vuelve a esta pantalla."
+    };
+  },
+
+  async verifyPasswordRecoveryCode(payload) {
+    const client = requireSupabase();
+    const method = payload.method || "email";
+
+    if (method === "sms") {
+      const phone = normalizePhoneForOtp(payload.phone);
+      const { data, error } = await client.auth.verifyOtp({
+        phone,
+        token: payload.code,
+        type: "sms"
+      });
+      if (error) throw new Error("El código SMS no es válido o ya venció.");
+      return { token: data.session?.access_token || "supabase-session" };
+    }
+
+    const { data, error } = await client.auth.verifyOtp({
+      email: payload.email,
+      token: payload.code,
+      type: "recovery"
+    });
+    if (error) throw new Error("El código no es válido o ya venció.");
+    return { token: data.session?.access_token || "supabase-session" };
+  },
+
+  async updateRecoveredPassword(password) {
+    if (!password || password.length < 6) {
+      throw new Error("La contraseña debe tener al menos 6 caracteres.");
+    }
+
+    const { error } = await requireSupabase().auth.updateUser({ password });
+    if (error) throw new Error(error.message);
+    return { message: "Contraseña actualizada. Ya puedes iniciar sesión." };
   },
 
   async login(payload) {
@@ -432,6 +521,11 @@ export const api = {
         .eq("id", authUser.id)
         .single()
     );
+    if (profile?.is_disabled) {
+      await requireSupabase().auth.signOut();
+      storage.clear();
+      throw new Error("Esta cuenta fue desactivada por soporte.");
+    }
     const user = formatProfile(profile);
     storage.setUser(user);
     return user;
@@ -484,10 +578,7 @@ export const api = {
       if (category?.id) query = query.eq("category_id", category.id);
     }
 
-    if (params.search) {
-      const term = `%${params.search}%`;
-      query = query.or(`title.ilike.${term},description.ilike.${term}`);
-    }
+    const rawSearch = String(params.search || "").trim().toLowerCase();
 
     if (params.city) query = query.ilike("city", `%${params.city}%`);
     if (params.minPrice) query = query.gte("price", Number(params.minPrice));
@@ -497,7 +588,23 @@ export const api = {
     const rows = unwrap(
       await query.order("published_at", { ascending: false }).limit(80)
     );
-    const formatted = await formatProductRows(rows);
+    let formatted = await formatProductRows(rows);
+
+    if (rawSearch) {
+      formatted = formatted.filter((product) => {
+        const text = [
+          product.title,
+          product.description,
+          product.city,
+          product.category_name,
+          product.seller_name,
+          ...(product.hashtags || [])
+        ]
+          .join(" ")
+          .toLowerCase();
+        return text.includes(rawSearch.replace(/^#/, ""));
+      });
+    }
 
     if (params.sort === "popular") {
       return formatted.sort((a, b) => b.favorite_count - a.favorite_count);
@@ -509,15 +616,45 @@ export const api = {
       return formatted.sort((a, b) => Number(b.price) - Number(a.price));
     }
     if (params.sort === "searched") {
-      const events = unwrap(await client.from("product_events").select("product_id"));
+      const currentUserId = await getCurrentUserId();
+      const events = unwrap(
+        await client.from("product_events").select("product_id,user_id,query")
+      );
       const counts = events.reduce((map, row) => {
         const key = String(row.product_id);
         map.set(key, (map.get(key) || 0) + 1);
         return map;
       }, new Map());
-      return formatted.sort(
-        (a, b) => (counts.get(String(b.id)) || 0) - (counts.get(String(a.id)) || 0)
-      );
+      const productsById = new Map(formatted.map((product) => [String(product.id), product]));
+      const userTagWeights = events.reduce((map, row) => {
+        if (!currentUserId || row.user_id !== currentUserId) return map;
+        const product = productsById.get(String(row.product_id));
+        (product?.hashtags || []).forEach((tag) => {
+          const normalized = String(tag).replace(/^#/, "").toLowerCase();
+          if (normalized) map.set(normalized, (map.get(normalized) || 0) + 1);
+        });
+        return map;
+      }, new Map());
+      const searchToken = rawSearch.replace(/^#/, "");
+      const score = (product) => {
+        const tags = (product.hashtags || []).map((tag) =>
+          String(tag).replace(/^#/, "").toLowerCase()
+        );
+        const tagAffinity = tags.reduce(
+          (total, tag) => total + (userTagWeights.get(tag) || 0),
+          0
+        );
+        const searchBoost = searchToken && tags.some((tag) => tag.includes(searchToken)) ? 8 : 0;
+        const noveltyBoost = product.is_new ? 2 : 0;
+        return (
+          (counts.get(String(product.id)) || 0) * 2 +
+          Number(product.favorite_count || 0) +
+          tagAffinity * 4 +
+          searchBoost +
+          noveltyBoost
+        );
+      };
+      return formatted.sort((a, b) => score(b) - score(a));
     }
 
     return formatted;
@@ -818,24 +955,37 @@ export const api = {
   async createProduct(payload) {
     const sellerId = await currentUserId();
     const publishedAt = nowIso();
-    const product = unwrap(
-      await requireSupabase()
+    const productPayload = {
+      seller_id: sellerId,
+      category_id: payload.categoryId || null,
+      title: payload.title,
+      description: payload.description,
+      price: Number(payload.price || 0),
+      is_free: Number(payload.price || 0) === 0,
+      image_url: payload.media?.[0]?.url || payload.imageUrl || null,
+      city: payload.city,
+      status: "active",
+      published_at: publishedAt,
+      hashtags: normalizeHashtags(payload.hashtags)
+    };
+
+    let response = await requireSupabase()
+      .from("products")
+      .insert(productPayload)
+      .select()
+      .single();
+
+    if (response.error && /hashtag/i.test(response.error.message || "")) {
+      const fallbackPayload = { ...productPayload };
+      delete fallbackPayload.hashtags;
+      response = await requireSupabase()
         .from("products")
-        .insert({
-          seller_id: sellerId,
-          category_id: payload.categoryId || null,
-          title: payload.title,
-          description: payload.description,
-          price: Number(payload.price || 0),
-          is_free: Number(payload.price || 0) === 0,
-          image_url: payload.media?.[0]?.url || payload.imageUrl || null,
-          city: payload.city,
-          status: "active",
-          published_at: publishedAt
-        })
+        .insert(fallbackPayload)
         .select()
-        .single()
-    );
+        .single();
+    }
+
+    const product = unwrap(response);
 
     const media = payload.media || [];
     if (media.length) {
@@ -882,6 +1032,75 @@ export const api = {
       .eq("id", id)
       .eq("seller_id", sellerId);
     return { message: "Publicacion eliminada." };
+  },
+
+  async adminUsers() {
+    const rows = unwrap(
+      await requireSupabase()
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false })
+    );
+    return rows;
+  },
+
+  async adminProducts() {
+    const rows = unwrap(
+      await requireSupabase()
+        .from("products")
+        .select("*")
+        .order("published_at", { ascending: false })
+    );
+    return formatProductRows(rows);
+  },
+
+  async adminReports() {
+    return unwrap(
+      await requireSupabase()
+        .from("product_reports")
+        .select("*")
+        .order("created_at", { ascending: false })
+    );
+  },
+
+  async adminDeleteProduct(id) {
+    await requireSupabase()
+      .from("products")
+      .update({ status: "deleted", updated_at: nowIso() })
+      .eq("id", id);
+    return { message: "Producto retirado por soporte." };
+  },
+
+  async adminRestoreProduct(id) {
+    await requireSupabase()
+      .from("products")
+      .update({ status: "active", updated_at: nowIso() })
+      .eq("id", id);
+    return { message: "Producto restaurado." };
+  },
+
+  async adminDisableUser(id) {
+    await requireSupabase()
+      .from("profiles")
+      .update({ is_disabled: true, updated_at: nowIso() })
+      .eq("id", id);
+    return { message: "Cuenta desactivada." };
+  },
+
+  async adminEnableUser(id) {
+    await requireSupabase()
+      .from("profiles")
+      .update({ is_disabled: false, updated_at: nowIso() })
+      .eq("id", id);
+    return { message: "Cuenta reactivada." };
+  },
+
+  async adminResolveReport(id) {
+    await requireSupabase()
+      .from("product_reports")
+      .update({ status: "reviewed", updated_at: nowIso() })
+      .eq("id", id);
+    return { message: "Reporte marcado como revisado." };
   },
 
   async similarProducts(id) {

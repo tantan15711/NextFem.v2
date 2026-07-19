@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import {
   ArrowLeft,
   Check,
@@ -41,7 +41,6 @@ const {
   blockSelectedConversationUser,
   emitTyping,
   isRecordingAudio,
-  loadConversations,
   messages,
   onChatMediaChange,
   prepareLocationMessage,
@@ -73,6 +72,54 @@ const conversationTime = (conversation) =>
     minute: "2-digit"
   }).format(new Date(conversation.last_message_created_at || conversation.updated_at));
 
+const dayKey = (value) => {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+};
+
+const dayLabel = (value) => {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (dayKey(date) === dayKey(today)) return "Hoy";
+  if (dayKey(date) === dayKey(yesterday)) return "Ayer";
+
+  return new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long"
+  }).format(date);
+};
+
+const messageItems = computed(() => {
+  const items = [];
+  let lastDay = "";
+
+  messages.value
+    .slice()
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .forEach((message) => {
+      const key = dayKey(message.created_at);
+      if (key !== lastDay) {
+        items.push({
+          type: "date",
+          key: `date-${key}`,
+          label: dayLabel(message.created_at)
+        });
+        lastDay = key;
+      }
+      items.push({
+        type: "message",
+        key: `message-${message.id}`,
+        message
+      });
+    });
+
+  return items;
+});
+
 const mapUrl = (message) =>
   `https://www.google.com/maps?q=${message.latitude},${message.longitude}`;
 
@@ -100,14 +147,12 @@ const handleDeleteMessage = async (message, scope) => {
 
 const scrollMessagesToBottom = async () => {
   await nextTick();
-
   if (!messageStream.value) return;
-
   messageStream.value.scrollTop = messageStream.value.scrollHeight;
 };
 
 watch(
-  () => messages.value.length,
+  () => messages.value.map((message) => `${message.id}-${message.created_at}`).join("|"),
   () => scrollMessagesToBottom()
 );
 
@@ -188,7 +233,7 @@ watch(
             <p class="eyebrow">{{ selectedConversation.product_title }}</p>
             <h2>{{ selectedConversation.other_user_name }}</h2>
             <span v-if="selectedTypingNames.length">
-              {{ selectedTypingNames.join(", ") }} esta escribiendo...
+              {{ selectedTypingNames.join(", ") }} está escribiendo...
             </span>
             <span v-else-if="selectedConversationBlocked">Usuaria bloqueada</span>
             <span v-else>Mensajes directos y seguros</span>
@@ -222,93 +267,99 @@ watch(
         </div>
 
         <div ref="messageStream" class="message-stream">
-          <article
-            v-for="message in messages"
-            :key="message.id"
-            class="message-bubble"
-            :class="{
-              mine: isMine(message),
-              deleted: message.is_deleted_for_everyone
-            }"
-          >
-            <button
-              class="message-menu-button"
-              title="Opciones del mensaje"
-              type="button"
-              @click="toggleMessageMenu(message)"
-            >
-              <MoreVertical :size="16" />
-            </button>
-            <div v-if="String(activeMessageMenuId) === String(message.id)" class="message-actions-menu">
-              <button type="button" @click="handleDeleteMessage(message, 'me')">
-                <Trash2 :size="15" />
-                Borrar para mi
-              </button>
-              <button
-                v-if="isMine(message) && !message.is_deleted_for_everyone"
-                type="button"
-                @click="handleDeleteMessage(message, 'everyone')"
-              >
-                <Trash2 :size="15" />
-                Borrar para todos
-              </button>
+          <template v-for="item in messageItems" :key="item.key">
+            <div v-if="item.type === 'date'" class="message-day-divider">
+              {{ item.label }}
             </div>
 
-            <span>{{ message.sender_name }}</span>
-
-            <p v-if="message.is_deleted_for_everyone" class="deleted-message">
-              {{ message.body }}
-            </p>
-            <template v-else-if="message.message_type === 'image'">
-              <img class="chat-image" :src="message.media_url" :alt="message.media_name || message.body" />
-              <p v-if="message.body && message.body !== 'Imagen'">{{ message.body }}</p>
-            </template>
-            <template v-else-if="message.message_type === 'video'">
-              <video class="chat-video" :src="message.media_url" controls></video>
-              <p v-if="message.body && message.body !== 'Video'">{{ message.body }}</p>
-            </template>
-            <template v-else-if="message.message_type === 'audio'">
-              <audio class="chat-audio" :src="message.media_url" controls></audio>
-              <p v-if="message.body && message.body !== 'Audio'">{{ message.body }}</p>
-            </template>
-            <template v-else-if="message.message_type === 'location'">
-              <a class="location-card" :href="mapUrl(message)" target="_blank" rel="noreferrer">
-                <MapPin :size="19" />
-                <span>
-                  <strong>{{ message.location_mode === "realtime" ? "Ubicación en tiempo real" : "Ubicación fija" }}</strong>
-                  {{ message.location_label || "Abrir en mapa" }}
-                </span>
-              </a>
-              <p v-if="message.body">{{ message.body }}</p>
-            </template>
-            <template v-else-if="message.message_type === 'file'">
-              <a class="file-card" :href="message.media_url" target="_blank" rel="noreferrer">
-                <File :size="18" />
-                {{ message.media_name || "Abrir archivo" }}
-              </a>
-              <p v-if="message.body && message.body !== 'Archivo'">{{ message.body }}</p>
-            </template>
-            <p v-else>{{ message.body }}</p>
-
-            <footer
-              v-if="isMine(message)"
-              class="message-state"
-              :class="{ read: message.read_at }"
+            <article
+              v-else
+              class="message-bubble"
+              :class="{
+                mine: isMine(item.message),
+                deleted: item.message.is_deleted_for_everyone,
+                pending: item.message.is_local
+              }"
             >
-              <CheckCheck v-if="message.read_at" :size="16" />
-              <Check v-else :size="16" />
-              <small>{{ message.read_at ? "Visto" : "Enviado" }} - {{ messageTime(message) }}</small>
-            </footer>
-            <footer v-else class="message-state">
-              <small>{{ messageTime(message) }}</small>
-            </footer>
-          </article>
+              <button
+                class="message-menu-button"
+                title="Opciones del mensaje"
+                type="button"
+                @click="toggleMessageMenu(item.message)"
+              >
+                <MoreVertical :size="16" />
+              </button>
+              <div v-if="String(activeMessageMenuId) === String(item.message.id)" class="message-actions-menu">
+                <button type="button" @click="handleDeleteMessage(item.message, 'me')">
+                  <Trash2 :size="15" />
+                  Borrar para mí
+                </button>
+                <button
+                  v-if="isMine(item.message) && !item.message.is_deleted_for_everyone"
+                  type="button"
+                  @click="handleDeleteMessage(item.message, 'everyone')"
+                >
+                  <Trash2 :size="15" />
+                  Borrar para todos
+                </button>
+              </div>
+
+              <span>{{ item.message.sender_name }}</span>
+
+              <p v-if="item.message.is_deleted_for_everyone" class="deleted-message">
+                {{ item.message.body }}
+              </p>
+              <template v-else-if="item.message.message_type === 'image'">
+                <img class="chat-image" :src="item.message.media_url" :alt="item.message.media_name || item.message.body" />
+                <p v-if="item.message.body && item.message.body !== 'Imagen'">{{ item.message.body }}</p>
+              </template>
+              <template v-else-if="item.message.message_type === 'video'">
+                <video class="chat-video" :src="item.message.media_url" controls></video>
+                <p v-if="item.message.body && item.message.body !== 'Video'">{{ item.message.body }}</p>
+              </template>
+              <template v-else-if="item.message.message_type === 'audio'">
+                <audio class="chat-audio" :src="item.message.media_url" controls></audio>
+                <p v-if="item.message.body && item.message.body !== 'Audio'">{{ item.message.body }}</p>
+              </template>
+              <template v-else-if="item.message.message_type === 'location'">
+                <a class="location-card" :href="mapUrl(item.message)" target="_blank" rel="noreferrer">
+                  <MapPin :size="19" />
+                  <span>
+                    <strong>{{ item.message.location_mode === "realtime" ? "Ubicación en tiempo real" : "Ubicación fija" }}</strong>
+                    {{ item.message.location_label || "Abrir en mapa" }}
+                  </span>
+                </a>
+                <p v-if="item.message.body">{{ item.message.body }}</p>
+              </template>
+              <template v-else-if="item.message.message_type === 'file'">
+                <a class="file-card" :href="item.message.media_url" target="_blank" rel="noreferrer">
+                  <File :size="18" />
+                  {{ item.message.media_name || "Abrir archivo" }}
+                </a>
+                <p v-if="item.message.body && item.message.body !== 'Archivo'">{{ item.message.body }}</p>
+              </template>
+              <p v-else>{{ item.message.body }}</p>
+
+              <footer
+                v-if="isMine(item.message)"
+                class="message-state"
+                :class="{ read: item.message.read_at }"
+              >
+                <CheckCheck v-if="item.message.read_at" :size="16" />
+                <Check v-else :size="16" />
+                <small>{{ item.message.read_at ? "Visto" : "Enviado" }} - {{ messageTime(item.message) }}</small>
+              </footer>
+              <footer v-else class="message-state">
+                <small>{{ messageTime(item.message) }}</small>
+              </footer>
+            </article>
+          </template>
         </div>
 
         <section v-if="conversationSummary" class="chat-summary-card">
           <div>
-            <p class="eyebrow">Impulso IA</p>
-            <h3>Resumen de la conversación</h3>
+            <p class="eyebrow">Resumen de la conversación</p>
+            <h3>Puntos importantes</h3>
           </div>
           <p>{{ conversationSummary.summary }}</p>
           <ul v-if="conversationSummary.pendingQuestions?.length">
@@ -322,8 +373,58 @@ watch(
         <p v-if="safetyNotice" class="safety-note">{{ safetyNotice }}</p>
 
         <p v-if="selectedConversationBlocked" class="safety-note">
-          Bloqueaste a esta usuaria. Desbloqueala si quieres volver a conversar.
+          Bloqueaste a esta usuaria. Desbloquéala si quieres volver a conversar.
         </p>
+
+        <div v-if="chatMediaFile || chatLocationDraft" class="compose-preview">
+          <img v-if="chatMediaPreview" :src="chatMediaPreview" alt="" />
+          <span v-else-if="chatMediaFile">{{ chatMediaFile.name }}</span>
+          <span v-else>{{ chatLocationDraft.locationLabel }}</span>
+          <button v-if="chatMediaFile" type="button" @click="clearChatMedia">
+            <X :size="16" />
+            Quitar
+          </button>
+          <button v-else type="button" @click="clearLocationDraft">
+            <X :size="16" />
+            Quitar
+          </button>
+        </div>
+
+        <Transition name="tools-slide">
+          <div v-if="chatToolsOpen" class="compose-tools-panel">
+            <button title="Adjuntar multimedia" type="button" @click="mediaInput?.click(); chatToolsOpen = false">
+              <Paperclip :size="18" />
+              Multimedia
+            </button>
+            <button
+              v-if="!isRecordingAudio"
+              title="Grabar audio"
+              type="button"
+              @click="startAudioRecording(); chatToolsOpen = false"
+            >
+              <Mic :size="18" />
+              Audio
+            </button>
+            <button
+              v-else
+              class="recording"
+              title="Detener grabación"
+              type="button"
+              @click="stopAudioRecording(); chatToolsOpen = false"
+            >
+              <Square :size="18" />
+              Detener
+            </button>
+            <button title="Compartir ubicación fija" type="button" @click="prepareLocationMessage(false); chatToolsOpen = false">
+              <MapPin :size="18" />
+              Ubicación fija
+            </button>
+            <button title="Compartir ubicación en tiempo real" type="button" @click="prepareLocationMessage(true); chatToolsOpen = false">
+              <Navigation :size="18" />
+              Tiempo real
+            </button>
+          </div>
+        </Transition>
 
         <form class="message-compose" @submit.prevent="sendMessage">
           <input
@@ -358,56 +459,6 @@ watch(
             <Send :size="18" />
           </button>
         </form>
-
-        <Transition name="tools-slide">
-          <div v-if="chatToolsOpen" class="compose-tools-panel">
-            <button title="Adjuntar multimedia" type="button" @click="mediaInput?.click(); chatToolsOpen = false">
-              <Paperclip :size="18" />
-              Multimedia
-            </button>
-            <button
-              v-if="!isRecordingAudio"
-              title="Grabar audio"
-              type="button"
-              @click="startAudioRecording(); chatToolsOpen = false"
-            >
-              <Mic :size="18" />
-              Audio
-            </button>
-            <button
-              v-else
-              class="recording"
-              title="Detener grabacion"
-              type="button"
-              @click="stopAudioRecording(); chatToolsOpen = false"
-            >
-              <Square :size="18" />
-              Detener
-            </button>
-            <button title="Compartir ubicacion fija" type="button" @click="prepareLocationMessage(false); chatToolsOpen = false">
-              <MapPin :size="18" />
-              Ubicación fija
-            </button>
-            <button title="Compartir ubicacion en tiempo real" type="button" @click="prepareLocationMessage(true); chatToolsOpen = false">
-              <Navigation :size="18" />
-              Tiempo real
-            </button>
-          </div>
-        </Transition>
-
-        <div v-if="chatMediaFile || chatLocationDraft" class="compose-preview">
-          <img v-if="chatMediaPreview" :src="chatMediaPreview" alt="" />
-          <span v-else-if="chatMediaFile">{{ chatMediaFile.name }}</span>
-          <span v-else>{{ chatLocationDraft.locationLabel }}</span>
-          <button v-if="chatMediaFile" type="button" @click="clearChatMedia">
-            <X :size="16" />
-            Quitar
-          </button>
-          <button v-else type="button" @click="clearLocationDraft">
-            <X :size="16" />
-            Quitar
-          </button>
-        </div>
       </template>
     </section>
 

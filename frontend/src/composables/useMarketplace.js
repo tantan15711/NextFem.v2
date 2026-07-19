@@ -8,7 +8,9 @@ const routeByView = {
   profile: "profile",
   sellerProfile: "seller-profile",
   chat: "chat",
-  courses: "courses"
+  courses: "courses",
+  recovery: "recovery",
+  admin: "admin"
 };
 
 const viewByRoute = Object.fromEntries(
@@ -24,6 +26,8 @@ let joinedConversationId = null;
 
 const activeView = ref("home");
 const authMode = ref("login");
+const recoveryStep = ref("request");
+const recoveryMethod = ref("email");
 const loading = ref(false);
 const notice = ref("");
 const error = ref("");
@@ -91,6 +95,14 @@ const authForm = reactive({
   businessName: ""
 });
 
+const recoveryForm = reactive({
+  email: "",
+  phone: "",
+  code: "",
+  password: "",
+  confirmPassword: ""
+});
+
 const profileForm = reactive({
   name: "",
   phone: "",
@@ -105,7 +117,8 @@ const productForm = reactive({
   description: "",
   categoryId: "",
   price: 0,
-  city: ""
+  city: "",
+  hashtags: ""
 });
 
 const chatDraft = reactive({
@@ -199,6 +212,23 @@ const authButtonText = computed(() => {
   return authMode.value === "register" ? "Crear cuenta" : "Entrar";
 });
 
+const recoveryButtonText = computed(() => {
+  if (loading.value) return "Procesando...";
+  if (recoveryStep.value === "verify") return "Verificar código";
+  if (recoveryStep.value === "password") return "Guardar contraseña";
+  return recoveryMethod.value === "sms" ? "Enviar código por SMS" : "Enviar código por correo";
+});
+
+const parseHashtags = (value = "") => [
+  ...new Set(
+    String(value || "")
+      .split(/[\s,]+/)
+      .map((tag) => tag.trim().replace(/^#/, ""))
+      .filter(Boolean)
+      .map((tag) => `#${tag.slice(0, 36)}`)
+  )
+].slice(0, 10);
+
 const setNotice = (message) => {
   notice.value = message;
   error.value = "";
@@ -266,6 +296,14 @@ const showBrowserNotification = (title, body) => {
 
 const syncRouteView = (routeName) => {
   activeView.value = viewByRoute[routeName] || "home";
+
+  if (
+    routeName === "recovery" &&
+    typeof window !== "undefined" &&
+    window.location.hash.includes("access_token")
+  ) {
+    recoveryStep.value = "password";
+  }
 };
 
 const setRouter = (router) => {
@@ -344,7 +382,16 @@ const connectSocket = () => {
         }
       }
 
-      await loadConversations(false);
+      if (isOpen) {
+        touchConversationPreview({
+          body: message.body,
+          mediaName: message.media_name,
+          locationLabel: message.location_label,
+          createdAt: message.created_at
+        });
+      } else {
+        window.setTimeout(() => loadConversations(false).catch(() => {}), 250);
+      }
     },
     onMessageUpdate: async (message) => {
       const isOpen =
@@ -357,7 +404,7 @@ const connectSocket = () => {
         );
       }
 
-      await loadConversations(false);
+      window.setTimeout(() => loadConversations(false).catch(() => {}), 250);
     },
     onNotification: async (notification) => {
       notifications.value = [notification, ...notifications.value]
@@ -369,7 +416,7 @@ const connectSocket = () => {
       showBrowserNotification(notification.title, notification.body);
     },
     onConversationChange: async () => {
-      await loadConversations(false);
+      window.setTimeout(() => loadConversations(false).catch(() => {}), 250);
     }
   });
 };
@@ -769,7 +816,7 @@ const smartSearchWithAI = async () => {
   const city = filters.city.trim();
 
   if (!queryText && !city) {
-    setError("Escribe lo que quieres encontrar para que Impulso IA ajuste la busqueda.");
+    setError("Escribe lo que quieres encontrar para ajustar la búsqueda.");
     return;
   }
 
@@ -791,8 +838,8 @@ const smartSearchWithAI = async () => {
     markApiOnline();
     setNotice(
       result.aiMode === "openai"
-        ? "Impulso IA conectada ajusto tu busqueda."
-        : "Impulso IA local ajusto tu busqueda."
+        ? "Sugerencias ajustó tu búsqueda."
+        : "Sugerencias ajustó tu búsqueda."
     );
   } catch (err) {
     handleRequestError(err);
@@ -911,7 +958,7 @@ const toggleFavorite = async (product) => {
         favoriteProducts.value = [product, ...favoriteProducts.value];
       }
       await api.addFavorite(product.id);
-      setNotice("Producto guardado para verlo despues.");
+      setNotice("Producto guardado para verlo después.");
     }
 
     products.value = products.value.map((item) =>
@@ -984,7 +1031,7 @@ const requireLogin = () => {
 
   authMode.value = "login";
   activeView.value = "auth";
-  setError("Inicia sesion para continuar.");
+  setError("Inicia sesión para continuar.");
 
   if (routerInstance && routerInstance.currentRoute.value.name !== "auth") {
     routerInstance.push({ name: "auth" });
@@ -1073,6 +1120,120 @@ const submitAuth = async () => {
   }
 };
 
+const openRecovery = async () => {
+  recoveryStep.value = "request";
+  recoveryMethod.value = "email";
+  recoveryForm.email = authForm.email || "";
+  recoveryForm.phone = authForm.phone || "";
+  recoveryForm.code = "";
+  recoveryForm.password = "";
+  recoveryForm.confirmPassword = "";
+  await navigateTo("recovery");
+};
+
+const cancelRecovery = async () => {
+  recoveryStep.value = "request";
+  authMode.value = "login";
+  await navigateTo("auth");
+};
+
+const requestRecoveryCode = async () => {
+  if (loading.value) return;
+
+  loading.value = true;
+  error.value = "";
+  notice.value = "";
+
+  try {
+    const result = await api.requestPasswordRecovery({
+      method: recoveryMethod.value,
+      email: recoveryForm.email,
+      phone: recoveryForm.phone
+    });
+    recoveryStep.value = "verify";
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const verifyRecoveryCode = async () => {
+  if (loading.value) return;
+
+  if (!recoveryForm.code.trim()) {
+    setError("Escribe el código que recibiste.");
+    return;
+  }
+
+  loading.value = true;
+  error.value = "";
+  notice.value = "";
+
+  try {
+    await api.verifyPasswordRecoveryCode({
+      method: recoveryMethod.value,
+      email: recoveryForm.email,
+      phone: recoveryForm.phone,
+      code: recoveryForm.code.trim()
+    });
+    recoveryStep.value = "password";
+    setNotice("Código verificado. Escribe tu nueva contraseña.");
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const finishPasswordReset = async () => {
+  if (loading.value) return;
+
+  if (recoveryForm.password !== recoveryForm.confirmPassword) {
+    setError("Las contraseñas no coinciden.");
+    return;
+  }
+
+  loading.value = true;
+  error.value = "";
+  notice.value = "";
+
+  try {
+    const result = await api.updateRecoveredPassword(recoveryForm.password);
+    await api.logout().catch(() => {});
+    storage.clear();
+    user.value = null;
+    recoveryStep.value = "request";
+    authMode.value = "login";
+    authForm.email = recoveryForm.email;
+    authForm.password = "";
+    recoveryForm.code = "";
+    recoveryForm.password = "";
+    recoveryForm.confirmPassword = "";
+    await navigateTo("auth");
+    setNotice(result.message);
+  } catch (err) {
+    handleRequestError(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const submitRecovery = async () => {
+  if (recoveryStep.value === "request") {
+    await requestRecoveryCode();
+    return;
+  }
+
+  if (recoveryStep.value === "verify") {
+    await verifyRecoveryCode();
+    return;
+  }
+
+  await finishPasswordReset();
+};
+
 const requestLogout = () => {
   showLogoutConfirm.value = true;
 };
@@ -1159,6 +1320,7 @@ const createProduct = async () => {
       price: Number(productForm.price || 0),
       isFree: Number(productForm.price || 0) === 0,
       city: productForm.city,
+      hashtags: parseHashtags(productForm.hashtags),
       media
     });
 
@@ -1187,9 +1349,10 @@ const createProduct = async () => {
     productForm.categoryId = "";
     productForm.price = 0;
     productForm.city = user.value?.city || "";
+    productForm.hashtags = "";
     clearProductMedia();
 
-    setNotice("Publicacion creada correctamente.");
+    setNotice("Publicación creada correctamente.");
     await navigateTo("profile");
     window.setTimeout(() => {
       Promise.all([loadProducts(), loadMyProducts(), loadMetrics()]).catch(() => {});
@@ -1266,10 +1429,14 @@ const generateProductWithAI = async () => {
       productForm.price = result.suggestedPrice;
     }
 
+    if (result.hashtags?.length) {
+      productForm.hashtags = result.hashtags.join(" ");
+    }
+
     setNotice(
       result.aiMode === "openai"
-        ? "Impulso IA conectada preparó tu publicación."
-        : "Impulso IA local preparó tu publicación."
+        ? "Sugerencias preparó tu publicación."
+        : "Sugerencias preparó tu publicación."
     );
   } catch (err) {
     handleRequestError(err);
@@ -1284,7 +1451,7 @@ const deleteProduct = async (product) => {
 
   try {
     await api.deleteProduct(product.id);
-    setNotice("Publicacion eliminada.");
+    setNotice("Publicación eliminada.");
     await loadProducts();
     await loadMyProducts();
   } catch (err) {
@@ -1542,7 +1709,7 @@ const restoreDeletedMessage = async (conversationId, messageId, scope) => {
   }
 
   await loadConversations(false);
-  setNotice("Eliminacion deshecha.");
+  setNotice("Eliminación deshecha.");
 };
 
 const deleteMessage = async (message, scope = "me") => {
@@ -1673,7 +1840,7 @@ const queueChatRefresh = () => {
     if (isLoggedIn.value) {
       loadConversations(false).catch(() => {});
     }
-  }, 1400);
+  }, 400);
 };
 
 const makeLocalMessage = (payload) => {
@@ -1873,6 +2040,8 @@ const teardownApp = () => {
 export const useMarketplace = () => ({
   activeView,
   authMode,
+  recoveryStep,
+  recoveryMethod,
   loading,
   notice,
   error,
@@ -1918,6 +2087,7 @@ export const useMarketplace = () => ({
   undoToast,
   filters,
   authForm,
+  recoveryForm,
   profileForm,
   productForm,
   chatDraft,
@@ -1934,6 +2104,7 @@ export const useMarketplace = () => ({
   selectedConversationBlocked,
   selectedTypingNames,
   authButtonText,
+  recoveryButtonText,
   setRouter,
   syncRouteView,
   goTo,
@@ -1970,6 +2141,9 @@ export const useMarketplace = () => ({
   saveReview,
   generateProductWithAI,
   submitAuth,
+  openRecovery,
+  cancelRecovery,
+  submitRecovery,
   saveProfile,
   createProduct,
   deleteProduct,

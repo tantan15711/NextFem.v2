@@ -8,6 +8,7 @@ import {
   Menu,
   MessageCircle,
   Plus,
+  Shield,
   UserRound,
   X
 } from "lucide-vue-next";
@@ -26,6 +27,7 @@ const {
   requestBrowserNotifications,
   unreadMessages,
   unreadNotifications,
+  user,
   toggleNotificationsPanel
 } = useMarketplace();
 
@@ -131,6 +133,10 @@ const notificationTime = (notification) =>
       <button v-if="isLoggedIn" :class="{ active: route.name === 'profile' }" type="button" @click="navigate('profile')">
         <UserRound :size="18" />
         Perfil
+      </button>
+      <button v-if="isLoggedIn && user?.role === 'admin'" :class="{ active: route.name === 'admin' }" type="button" @click="navigate('admin')">
+        <Shield :size="18" />
+        Admin
       </button>
       <button v-if="!isLoggedIn" class="primary" type="button" @click="navigate('auth')">
         Entrar
