@@ -7,9 +7,11 @@ const {
   assistantResult,
   createProduct,
   generateProductWithAI,
+  isEditingProduct,
   onProductMediaChange,
   productForm,
   productMediaPreviews,
+  productSubmitText,
   removeProductMedia
 } = useMarketplace();
 </script>
@@ -17,11 +19,20 @@ const {
 <template>
   <section class="form-band">
     <div class="form-copy">
-      <p class="eyebrow">Nueva publicación</p>
-      <h1>Comparte lo que vendes, haces o puedes ofrecer.</h1>
+      <p class="eyebrow">{{ isEditingProduct ? "Editar publicación" : "Nueva publicación" }}</p>
+      <h1>
+        {{
+          isEditingProduct
+            ? "Actualiza los datos de tu producto."
+            : "Comparte lo que vendes, haces o puedes ofrecer."
+        }}
+      </h1>
       <p>
-        No hay carrito ni cobros dentro de la plataforma. El contacto ocurre
-        por chat entre compradora y vendedora.
+        {{
+          isEditingProduct
+            ? "Puedes cambiar el texto, precio, categoría, ciudad, hashtags y archivos multimedia."
+            : "No hay carrito ni cobros dentro de la plataforma. El contacto ocurre por chat entre compradora y vendedora."
+        }}
       </p>
     </div>
 
@@ -157,7 +168,7 @@ const {
         </article>
       </div>
 
-      <button class="primary wide" type="submit">Guardar publicación</button>
+      <button class="primary wide" type="submit">{{ productSubmitText }}</button>
     </form>
   </section>
 </template>

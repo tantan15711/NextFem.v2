@@ -1,11 +1,12 @@
 <script setup>
-import { Camera, Trash2 } from "lucide-vue-next";
+import { Camera, Pencil, Trash2 } from "lucide-vue-next";
 import { ref } from "vue";
 import ProductDetailModal from "../components/ProductDetailModal.vue";
 import { useMarketplace } from "../composables/useMarketplace";
 
 const {
   deleteProduct,
+  editProduct,
   favoriteProducts,
   goTo,
   isLoggedIn,
@@ -153,16 +154,22 @@ const openSavedProduct = (product) => {
         <button type="button" @click="goTo('publish')">Nueva</button>
       </div>
       <div v-if="myProducts.length === 0" class="empty-state">
-        Todavia no has publicado productos.
+        Todavía no has publicado productos.
       </div>
       <article v-for="product in myProducts" :key="product.id" class="own-product">
         <div>
           <strong>{{ product.title }}</strong>
           <span>{{ product.category_name || "General" }} - {{ money(product.price) }}</span>
         </div>
-        <button class="danger" title="Eliminar" type="button" @click="deleteProduct(product)">
-          <Trash2 :size="17" />
-        </button>
+        <div class="own-product-actions">
+          <button title="Editar" type="button" @click="editProduct(product)">
+            <Pencil :size="17" />
+            Editar
+          </button>
+          <button class="danger" title="Eliminar" type="button" @click="deleteProduct(product)">
+            <Trash2 :size="17" />
+          </button>
+        </div>
       </article>
     </section>
 
@@ -170,7 +177,7 @@ const openSavedProduct = (product) => {
       <div class="section-heading">
         <div>
           <p class="eyebrow">Favoritos</p>
-          <h2>Guardados para despues</h2>
+          <h2>Guardados para después</h2>
         </div>
       </div>
       <div v-if="favoriteProducts.length === 0" class="empty-state">

@@ -28,6 +28,8 @@ const activeView = ref("home");
 const authMode = ref("login");
 const recoveryStep = ref("request");
 const recoveryMethod = ref("email");
+const editingProductId = ref("");
+const editingProductLoadedId = ref("");
 const loading = ref(false);
 const notice = ref("");
 const error = ref("");
@@ -177,6 +179,10 @@ const selectedCategoryName = computed(() => {
   const found = categories.value.find((category) => category.slug === filters.category);
   return found ? found.name : "Todas";
 });
+const isEditingProduct = computed(() => Boolean(editingProductId.value));
+const productSubmitText = computed(() =>
+  isEditingProduct.value ? "Guardar cambios" : "Guardar publicación"
+);
 const unreadMessages = computed(() =>
   conversations.value.reduce((total, conversation) => {
     return total + Number(conversation.unread_count || 0);
@@ -295,7 +301,18 @@ const showBrowserNotification = (title, body) => {
 };
 
 const syncRouteView = (routeName) => {
+  if (routeName === "product-edit") {
+    activeView.value = "publish";
+    const productId = routerInstance?.currentRoute.value.params.productId;
+    if (productId) loadProductForEditing(String(productId));
+    return;
+  }
+
   activeView.value = viewByRoute[routeName] || "home";
+
+  if (routeName === "publish") {
+    resetProductForm();
+  }
 
   if (
     routeName === "recovery" &&
@@ -313,6 +330,10 @@ const setRouter = (router) => {
 
 const navigateTo = async (view) => {
   activeView.value = view;
+
+  if (view === "publish") {
+    resetProductForm();
+  }
 
   if (routerInstance && routerInstance.currentRoute.value.name !== routeByView[view]) {
     await routerInstance.push({ name: routeByView[view] });
@@ -719,19 +740,23 @@ const uploadProductMediaFile = async (file) => {
 };
 
 const clearProductMedia = () => {
-  productMediaPreviews.value.forEach((item) => URL.revokeObjectURL(item.url));
+  productMediaPreviews.value.forEach((item) => {
+    if (!item.existing && item.url) URL.revokeObjectURL(item.url);
+  });
   productMediaFiles.value = [];
   productMediaPreviews.value = [];
 };
 
 const onProductMediaChange = (event) => {
   const currentKeys = new Set(
-    productMediaFiles.value.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
+    productMediaPreviews.value
+      .filter((item) => item.file)
+      .map((item) => `${item.file.name}-${item.file.size}-${item.file.lastModified}`)
   );
   const incomingFiles = Array.from(event.target.files || [])
     .filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"))
     .filter((file) => !currentKeys.has(`${file.name}-${file.size}-${file.lastModified}`));
-  const availableSlots = Math.max(0, 8 - productMediaFiles.value.length);
+  const availableSlots = Math.max(0, 8 - productMediaPreviews.value.length);
   const files = incomingFiles.slice(0, availableSlots);
 
   if (files.length === 0) {
@@ -748,7 +773,8 @@ const onProductMediaChange = (event) => {
     name: file.name,
     type: file.type,
     mediaType: file.type.startsWith("video/") ? "video" : "image",
-    url: URL.createObjectURL(file)
+    url: URL.createObjectURL(file),
+    file
     }))
   ];
   event.target.value = "";
@@ -757,16 +783,94 @@ const onProductMediaChange = (event) => {
 const removeProductMedia = (index) => {
   const preview = productMediaPreviews.value[index];
 
-  if (preview?.url) {
+  if (preview?.url && !preview.existing) {
     URL.revokeObjectURL(preview.url);
   }
 
-  productMediaFiles.value = productMediaFiles.value.filter((_, itemIndex) => itemIndex !== index);
+  if (preview?.file) {
+    productMediaFiles.value = productMediaFiles.value.filter((file) => file !== preview.file);
+  }
   productMediaPreviews.value = productMediaPreviews.value.filter((_, itemIndex) => itemIndex !== index);
 };
 
 const onProductImageChange = onProductMediaChange;
 const clearProductImage = clearProductMedia;
+
+const resetProductForm = () => {
+  editingProductId.value = "";
+  editingProductLoadedId.value = "";
+  productForm.title = "";
+  productForm.description = "";
+  productForm.categoryId = "";
+  productForm.price = 0;
+  productForm.city = user.value?.city || "";
+  productForm.hashtags = "";
+  assistantResult.value = null;
+  clearProductMedia();
+};
+
+const fillProductFormFromProduct = (product) => {
+  editingProductId.value = String(product.id);
+  editingProductLoadedId.value = String(product.id);
+  productForm.title = product.title || "";
+  productForm.description = product.description || "";
+  productForm.categoryId = product.category_id ? String(product.category_id) : "";
+  productForm.price = Number(product.price || 0);
+  productForm.city = product.city || user.value?.city || "";
+  productForm.hashtags = (product.hashtags || []).join(" ");
+  assistantResult.value = null;
+  clearProductMedia();
+  productMediaPreviews.value = (product.media || []).map((item, index) => ({
+    id: item.id || `${product.id}-${index}`,
+    name: item.name || `Archivo ${index + 1}`,
+    type: item.mimeType || item.mime_type || "",
+    mediaType: item.mediaType || item.media_type || "image",
+    mimeType: item.mimeType || item.mime_type || "",
+    url: item.url,
+    existing: true
+  }));
+};
+
+const loadProductForEditing = async (productId) => {
+  if (!requireLogin()) return;
+  if (editingProductLoadedId.value === String(productId)) return;
+
+  loading.value = true;
+  try {
+    const product = await api.productForEdit(productId);
+    fillProductFormFromProduct(product);
+  } catch (err) {
+    handleRequestError(err);
+    await navigateTo("profile");
+  } finally {
+    loading.value = false;
+  }
+};
+
+const editProduct = async (product) => {
+  if (!requireLogin()) return;
+  const productId = String(product.id);
+  editingProductLoadedId.value = "";
+  editingProductId.value = productId;
+
+  if (routerInstance) {
+    await routerInstance.push({ name: "product-edit", params: { productId } });
+  }
+
+  await loadProductForEditing(productId);
+};
+
+const buildProductMediaPayload = async () =>
+  Promise.all(
+    productMediaPreviews.value.map(async (item, index) => {
+      const media = item.existing && !item.file ? item : await uploadProductMediaFile(item.file);
+      return {
+        ...media,
+        sortOrder: index,
+        isPrimary: index === 0
+      };
+    })
+  );
 
 const onProfileImageChange = (event) => {
   const file = event.target.files?.[0];
@@ -1305,13 +1409,48 @@ const createProduct = async () => {
   loading.value = true;
 
   try {
-    const media = await Promise.all(
-      productMediaFiles.value.map(async (file, index) => ({
-        ...(await uploadProductMediaFile(file)),
-        sortOrder: index,
-        isPrimary: index === 0
-      }))
-    );
+    const media = await buildProductMediaPayload();
+
+    if (editingProductId.value) {
+      const result = await api.updateProduct(editingProductId.value, {
+        title: productForm.title,
+        description: productForm.description,
+        categoryId: productForm.categoryId || null,
+        price: Number(productForm.price || 0),
+        isFree: Number(productForm.price || 0) === 0,
+        city: productForm.city,
+        hashtags: parseHashtags(productForm.hashtags),
+        media,
+        replaceMedia: true
+      });
+
+      const updatedProduct = {
+        ...result.product,
+        media,
+        category_name:
+          categories.value.find((category) => String(category.id) === String(productForm.categoryId))?.name ||
+          "General",
+        seller_name: user.value?.business_name || user.value?.name,
+        seller_business_name: user.value?.business_name,
+        seller_avatar_url: user.value?.avatar_url,
+        seller_rating: metrics.value?.average_rating || 0
+      };
+
+      products.value = products.value.map((product) =>
+        String(product.id) === String(updatedProduct.id) ? { ...product, ...updatedProduct } : product
+      );
+      myProducts.value = myProducts.value.map((product) =>
+        String(product.id) === String(updatedProduct.id) ? { ...product, ...updatedProduct } : product
+      );
+
+      resetProductForm();
+      setNotice(result.message);
+      await navigateTo("profile");
+      window.setTimeout(() => {
+        Promise.all([loadProducts(), loadMyProducts(), loadMetrics()]).catch(() => {});
+      }, 600);
+      return;
+    }
 
     const result = await api.createProduct({
       title: productForm.title,
@@ -2098,6 +2237,8 @@ export const useMarketplace = () => ({
   recentProducts,
   sellerBadges,
   selectedCategoryName,
+  isEditingProduct,
+  productSubmitText,
   unreadMessages,
   unreadNotifications,
   notificationCount,
@@ -2146,6 +2287,7 @@ export const useMarketplace = () => ({
   submitRecovery,
   saveProfile,
   createProduct,
+  editProduct,
   deleteProduct,
   showSimilar,
   openContact,

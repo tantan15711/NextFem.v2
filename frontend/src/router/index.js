@@ -24,6 +24,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: "/publicar/:productId/editar",
+    name: "product-edit",
+    component: () => import("../views/PublishView.vue"),
+    meta: { requiresAuth: true }
+  },
+  {
     path: "/perfil",
     name: "profile",
     component: () => import("../views/ProfileView.vue"),

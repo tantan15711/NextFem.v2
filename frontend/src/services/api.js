@@ -98,6 +98,8 @@ const currentUserId = async () => {
   return authUser?.id || null;
 };
 
+const getCurrentUserId = currentUserId;
+
 const formatProfile = (profile) =>
   profile
     ? {
@@ -896,6 +898,23 @@ export const api = {
     return formatProductRows(rows);
   },
 
+  async productForEdit(id) {
+    const sellerId = await currentUserId();
+    const rows = unwrap(
+      await requireSupabase()
+        .from("products")
+        .select("*")
+        .eq("id", id)
+        .eq("seller_id", sellerId)
+        .neq("status", "deleted")
+        .limit(1)
+    );
+
+    const [product] = await formatProductRows(rows);
+    if (!product) throw new Error("No se encontró la publicación o no tienes permiso para editarla.");
+    return product;
+  },
+
   async publicSellerProfile(sellerId) {
     const supabase = requireSupabase();
     const profile = unwrap(
@@ -1021,7 +1040,64 @@ export const api = {
       )
       .catch(() => {});
 
-    return { product: { ...product, media }, message: "Publicacion creada correctamente." };
+    return { product: { ...product, media }, message: "Publicación creada correctamente." };
+  },
+
+  async updateProduct(id, payload) {
+    const sellerId = await currentUserId();
+    const productPayload = {
+      category_id: payload.categoryId || null,
+      title: payload.title,
+      description: payload.description,
+      price: Number(payload.price || 0),
+      is_free: Number(payload.price || 0) === 0,
+      image_url: payload.media?.[0]?.url || payload.imageUrl || null,
+      city: payload.city,
+      updated_at: nowIso(),
+      hashtags: normalizeHashtags(payload.hashtags)
+    };
+
+    let response = await requireSupabase()
+      .from("products")
+      .update(productPayload)
+      .eq("id", id)
+      .eq("seller_id", sellerId)
+      .select()
+      .single();
+
+    if (response.error && /hashtag/i.test(response.error.message || "")) {
+      const fallbackPayload = { ...productPayload };
+      delete fallbackPayload.hashtags;
+      response = await requireSupabase()
+        .from("products")
+        .update(fallbackPayload)
+        .eq("id", id)
+        .eq("seller_id", sellerId)
+        .select()
+        .single();
+    }
+
+    const product = unwrap(response);
+    const media = payload.media || [];
+
+    if (payload.replaceMedia) {
+      await requireSupabase().from("product_media").delete().eq("product_id", id);
+
+      if (media.length) {
+        await requireSupabase().from("product_media").insert(
+          media.map((item, index) => ({
+            product_id: id,
+            url: item.url,
+            media_type: item.mediaType || item.media_type || "image",
+            mime_type: item.mimeType || item.mime_type || "",
+            name: item.name || item.fileName || item.file_name || "",
+            sort_order: index
+          }))
+        );
+      }
+    }
+
+    return { product: { ...product, media }, message: "Publicación actualizada correctamente." };
   },
 
   async deleteProduct(id) {
@@ -1031,7 +1107,7 @@ export const api = {
       .update({ status: "deleted", updated_at: nowIso() })
       .eq("id", id)
       .eq("seller_id", sellerId);
-    return { message: "Publicacion eliminada." };
+    return { message: "Publicación eliminada." };
   },
 
   async adminUsers() {
